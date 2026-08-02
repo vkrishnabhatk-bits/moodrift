@@ -1,0 +1,40 @@
+# Serving configuration. Consumed by src/serve/ in Week 3; the schemas already read the
+# limits from here so the contract and the implementation cannot disagree about them.
+
+model:
+  # Always an explicit alias, never "latest" - it must be auditable which version is live.
+  # @production is set once the Week 3 smoke and load tests pass; until then this URI does
+  # not resolve, and /ready is expected to fail. That is the correct failure: an unproven
+  # model should not be servable by pointing at whatever was trained last.
+  uri: models:/moodrift-classifier@production
+  # The alias is repeated separately because GET /model/info reports it, and parsing it
+  # back out of the URI in the response handler would be silly.
+  alias: production
+
+limits:
+  # Batch endpoint cap. Oversize returns 413, not 422: the request is well-formed, it is
+  # simply too large - which is what 413 means.
+  max_batch: 64
+  # Absolute input cap, matching validation.max_text_chars in conf/data.yaml so the API
+  # and the training pipeline agree on what counts as a review. Above this: 413.
+  max_input_chars: 20000
+  # The model's own window. Longer input is truncated by the tokeniser rather than
+  # rejected, and the response says so via flags.truncated.
+  max_tokens: 256
+
+flags:
+  # An input with fewer than this many letters (emoji-only, "!!!", a bare URL) carries
+  # too little signal to classify honestly. It is still served - with low_signal set -
+  # because refusing would hide the case rather than surface it.
+  low_signal_min_alpha_chars: 3
+  # Non-English input is out of domain (the training corpus is English-only, ADR-0002).
+  # Served with out_of_domain set, using the same tier-0 detector the sample stage used.
+  out_of_domain_language: en
+  out_of_domain_min_confidence: 0.90
+
+logging:
+  path: data/predictions/predictions.jsonl
+  # Raw review text is not logged by default: the log is shipped with the repo during
+  # evaluation and there is no reason for user text to travel with it. The text hash is
+  # enough to detect repeats and to join back to the feature store.
+  log_raw_text: false
