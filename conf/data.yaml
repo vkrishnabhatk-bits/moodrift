@@ -1,0 +1,61 @@
+# Data plane configuration (M2).
+# Every path is relative to the repository root.
+
+source:
+  name: amazon-fine-food-reviews
+  # Primary source: the original Stanford SNAP release (McAuley & Leskovec, WWW'13).
+  # No authentication required, unlike the Kaggle mirror of the same data.
+  url: https://snap.stanford.edu/data/finefoods.txt.gz
+  archive: data/raw/finefoods.txt.gz
+  # Optional override: if a Kaggle-style Reviews.csv is present it is used instead of
+  # the SNAP archive. Same schema either way, so the rest of the pipeline is unaffected.
+  csv_override: data/raw/Reviews.csv
+  # The SNAP archive is NOT clean UTF-8 - it carries stray cp1252 bytes. We decode
+  # permissively here and record the damage in the validation report rather than
+  # letting a decode error kill the ingest.
+  encoding: utf-8
+  encoding_errors: replace
+
+paths:
+  parsed: data/interim/reviews.parquet
+  validated: data/interim/validated.parquet
+  rejected: data/interim/rejected/rejected.parquet
+  quality_report: docs/data_quality_report.md
+  train: data/processed/train.parquet
+  val: data/processed/val.parquet
+  test: data/processed/test.parquet
+  reference: data/reference/reference.parquet
+
+validation:
+  valid_scores: [1, 2, 3, 4, 5]
+  min_text_chars: 1
+  max_text_chars: 20000
+  # Rows failing these checks are quarantined with a reason, never silently dropped.
+
+language_filter:
+  enabled: true
+  target: en
+  min_confidence: 0.90
+  # Very short texts carry too little signal for reliable language ID; we keep them
+  # rather than discard them on a coin-flip detection.
+  min_chars_for_detection: 25
+
+sample:
+  # Sized down from the full ~568K rows so the pipeline runs end-to-end on a laptop.
+  # Justified in docs/decisions/ADR-0001.
+  size: 60000
+  # "proportional" preserves the real (imbalanced) class distribution. Imbalance is
+  # handled at training time via class weighting, not by distorting the sample.
+  strategy: proportional
+  seed: 42
+  # Language ID is the expensive part of this stage, so it runs on an oversampled
+  # candidate pool rather than all ~567K validated rows: we draw size * this factor,
+  # filter to English, then take the final proportional sample from the survivors.
+  # Same end result, bounded cost. See ADR-0002.
+  language_filter_oversample: 1.25
+  splits:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  # Frozen at Week 1 so Week 3's drift detectors have a stable baseline to compare against.
+  reference_window_size: 5000
