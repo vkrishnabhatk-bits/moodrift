@@ -7,24 +7,33 @@ seed: 42
 vectorizer:
   # Word n-grams capture phrasing; char n-grams absorb typos, elongation and emoji
   # that word tokenisation would otherwise drop. The two are combined via FeatureUnion.
+  #
+  # Char n-grams are the cost driver: `char_wb` over range [3,5] emits three n-grams per
+  # character, so a 600-character review produces ~1800 non-zeros before the vocabulary
+  # cap even applies. An initial [3,5] / 200k configuration had not converged after 21
+  # minutes, which defeats the purpose of tier 1 - it is meant to be the fast,
+  # travel-proof baseline that always works. Narrowing to [3,4] removes a third of the
+  # non-zeros per document at negligible accuracy cost.
   word:
     ngram_range: [1, 2]
     min_df: 3
     max_df: 0.9
-    max_features: 200000
+    max_features: 150000
     sublinear_tf: true
     strip_accents: unicode
   char:
     analyzer: char_wb
-    ngram_range: [3, 5]
-    min_df: 3
-    max_features: 200000
+    ngram_range: [3, 4]
+    min_df: 5
+    max_features: 80000
     sublinear_tf: true
 
 classifier:
   C: 4.0
-  max_iter: 1000
+  # tol is loosened from the 1e-4 default: on TF-IDF features the last decimal places of
+  # the loss buy no measurable macro-F1 but cost many extra lbfgs iterations.
+  tol: 0.001
+  max_iter: 300
   # Imbalance is handled here, not by resampling the dataset (see ADR-0001).
   class_weight: balanced
   solver: lbfgs
-  n_jobs: -1

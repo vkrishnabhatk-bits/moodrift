@@ -92,8 +92,19 @@ def log_flat_params(config: dict[str, Any], prefix: str = "") -> None:
 
 
 def log_model(model: Any, name: str, flavor: str = "sklearn", **kwargs: Any) -> None:
-    """Log a model, tolerating the MLflow 2.x -> 3.x keyword rename."""
+    """Log a model, absorbing two MLflow 3.x differences.
+
+    1. ``artifact_path`` was renamed to ``name``.
+    2. The sklearn flavor now defaults to ``skops`` serialisation, which refuses to
+       save types it does not recognise as sklearn-native. That is a sensible default
+       for untrusted artifacts, but it rejects a LightGBM booster wrapped in the sklearn
+       API - and it fails *after* the metrics are logged, leaving a run marked FAILED
+       with no model attached. cloudpickle (the previous default) handles both tiers and
+       keeps them loadable through one code path in Week 3.
+    """
     module = getattr(mlflow, flavor)
+    if flavor == "sklearn":
+        kwargs.setdefault("serialization_format", "cloudpickle")
     try:
         module.log_model(model, name=name, **kwargs)
     except TypeError:
