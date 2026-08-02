@@ -1,0 +1,66 @@
+[project]
+name = "moodrift"
+version = "0.1.0"
+description = "End-to-end MLOps pipeline for review-rating classification with drift-triggered retraining"
+requires-python = ">=3.11,<3.12"
+
+# Direct dependencies carry lower bounds only; the exact resolved versions are frozen
+# into requirements.lock.txt, which is what CI and Docker install from. Pinning in one
+# place (the lock) avoids the two files drifting apart.
+dependencies = [
+    # data
+    "pandas>=2.2",
+    "pyarrow>=18.0",
+    "pandera>=0.22,<0.24",
+    "numpy>=1.26",
+    # versioning + tracking
+    "dvc>=3.59",
+    "mlflow>=2.19",
+    # config
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "pyyaml>=6.0",
+    # modelling
+    "scikit-learn>=1.6",
+    "lightgbm>=4.5",
+    "sentence-transformers>=3.3",
+    "torch>=2.5",
+    # language identification (tier 0)
+    "py3langid>=0.3",
+    # utilities
+    "tqdm>=4.67",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "mypy>=1.14",
+    "pre-commit>=4.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

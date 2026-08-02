@@ -1,0 +1,27 @@
+# Data is versioned by DVC, never by git.
+/data/
+
+# Local experiment tracking store (MLflow metadata + artifacts).
+/mlruns/
+/mlflow.db
+/artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
