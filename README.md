@@ -58,10 +58,19 @@ make reproduce RUN_ID=847d5707134c4119bc39018e354335c4
 ```
 
 It verifies the commit, the data hashes and the config against what the run recorded,
-retrains, and asserts the metric matches within a per-tier tolerance. Both CPU tiers
-reproduce **exactly** (delta 0.000000); tier 3 gets a documented tolerance band because
-Apple's MPS backend is not bit-deterministic — two runs from the same seed gave 0.6017 and
-0.6001, and claiming byte-identical reproduction there would be false.
+retrains, and asserts the metric matches within a per-tier tolerance. **All three tiers
+have been re-run and checked:**
+
+| Tier | Original macro-F1 | Reproduced | Delta | Tolerance |
+|---|---|---|---|---|
+| 1 | 0.513706 | 0.513706 | 0.000000 | 0.0 (exact) |
+| 2 | 0.429204 | 0.429204 | 0.000000 | 0.0 (exact) |
+| 3 | 0.600110 | 0.600549 | 0.000439 | 0.005 |
+
+The CPU tiers reproduce bit-for-bit. Tier 3 gets a documented band because Apple's MPS
+backend is not bit-deterministic — three same-seed runs have now produced 0.6017, 0.6001
+and 0.6005, a spread of 0.0016. Claiming byte-identical reproduction there would be false,
+so the check asserts a band and the report says so.
 
 `make help` lists every target.
 
