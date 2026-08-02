@@ -1,5 +1,6 @@
 # Tier 1 - TF-IDF (word + char n-grams) into a multinomial logistic regression.
-# The travel-proof baseline: trains on CPU in about a minute and is fully interpretable.
+# The CPU baseline: no GPU dependency, fully interpretable coefficients. Measured at about
+# 13 minutes on an M1 Pro with the settings below - not fast, but it always works.
 
 name: tier1_tfidf_logreg
 seed: 42

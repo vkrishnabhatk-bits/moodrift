@@ -16,9 +16,11 @@ Two practical problems surfaced during implementation.
 arm64 and requires a C++ toolchain to build from source. Every developer machine and every
 container image would inherit that build step.
 
-**Cost of placement.** Running language ID over all 567,140 validated rows costs roughly
-10 minutes of CPU per pipeline run, to discard a fraction of a percent of rows — measured
-at 0.47% on this corpus.
+**Cost of placement.** Language ID over the 67K-row candidate pool takes on the order of a
+minute, which extrapolates to roughly ten minutes for all 567,140 validated rows — spent to
+discard a fraction of a percent of them. The discard rate *is* measured: 0.47% on this
+corpus. The full-corpus timing is an extrapolation; we never ran it that way, precisely
+because this ADR decided not to.
 
 ## Decision
 
