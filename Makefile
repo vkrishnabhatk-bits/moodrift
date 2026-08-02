@@ -4,6 +4,12 @@
 PY := .venv/bin/python
 PIP := uv pip install --python .venv
 
+# DVC stage commands in dvc.yaml invoke a bare `python`, which resolves through PATH
+# rather than through $(PY). Without this, `make data` runs the stages against whatever
+# interpreter happens to be first on PATH - typically a system or conda python with none
+# of this project's dependencies installed - and every stage fails on import.
+export PATH := $(CURDIR)/.venv/bin:$(PATH)
+
 .DEFAULT_GOAL := help
 .PHONY: help setup data ingest validate sample features train tier1 tier2 compare \
         test lint format mlflow-ui freeze clean-artifacts

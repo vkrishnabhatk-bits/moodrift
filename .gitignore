@@ -1,5 +1,9 @@
-# Data is versioned by DVC, never by git.
-/data/
+# Data is versioned by DVC, never by git - but the .dvc pointer files that record
+# each file's hash MUST be committed, or the versioning is invisible to anyone else.
+# Directories are re-included so git can descend far enough to see those pointers.
+/data/**
+!/data/**/
+!/data/**/*.dvc
 
 # Local experiment tracking store (MLflow metadata + artifacts).
 /mlruns/

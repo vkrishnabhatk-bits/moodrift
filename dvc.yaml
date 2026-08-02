@@ -11,6 +11,16 @@ stages:
   ingest:
     cmd: python -m src.ingest.loader
     deps:
+      # The raw archive is a first-class, hashed dependency, not just something the
+      # loader happens to download. Without this, a change to the upstream file would
+      # silently produce a different dataset: DVC would still consider the stage fresh,
+      # because it only knew about the code and the config. Now any change to the raw
+      # bytes invalidates ingest and everything downstream of it.
+      #
+      # It is separately tracked (data/raw/finefoods.txt.gz.dvc), so `dvc pull` fetches
+      # the exact archive this pipeline was built from rather than re-downloading
+      # whatever the URL serves today.
+      - data/raw/finefoods.txt.gz
       - src/ingest/loader.py
       - src/config.py
     params:

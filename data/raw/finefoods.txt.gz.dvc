@@ -1,0 +1,5 @@
+outs:
+- md5: 160834e09427a29b801107062607ddab
+  size: 122104202
+  hash: md5
+  path: finefoods.txt.gz
