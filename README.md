@@ -39,14 +39,13 @@ make mlflow-ui  # browse experiments at http://127.0.0.1:5000
 
 ## How it fits together
 
-Four planes, each runnable on its own. Only the first two exist today. The `M2`–`M5`
-labels map each plane to the course module it is assessed under.
+Four planes, each runnable on its own. Only the first two exist today.
 
 ```
-Data plane (M2)          raw → validate → sample → feature store → DVC tag      ✅ built
-Experiment plane (M3)    config → train tiers → evaluate → MLflow → registry    ✅ built
-Serving plane (M4)       registry → ONNX → FastAPI → Docker → /predict          ⬜ week 3
-Observability plane (M5) prediction log → drift → trigger → retrain             ⬜ week 3
+Data plane          raw → validate → sample → feature store → DVC tag      ✅ built
+Experiment plane    config → train tiers → evaluate → MLflow → registry    ✅ built
+Serving plane       registry → ONNX → FastAPI → Docker → /predict          ⬜ week 3
+Observability plane prediction log → drift → trigger → retrain             ⬜ week 3
 ```
 
 Text normalisation lives in one place (`src/features/clean.py`) and is shared by training and
