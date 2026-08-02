@@ -68,5 +68,5 @@ single config value (`sample.size`) that can be raised later if time allows.
 
 ## Related
 
-- [[ADR-0005-cross-split-text-deduplication]] — the other sampling decision, made after
-  the first run revealed leakage.
+- [ADR-0005: cross-split text deduplication](ADR-0005-cross-split-text-deduplication.md) —
+  the other sampling decision, made after the first run revealed leakage.

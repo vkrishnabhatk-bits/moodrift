@@ -74,4 +74,5 @@ Week 2 shows evidence of reviewer-level memorisation.
 
 ## Related
 
-- [[ADR-0001-sampling-and-class-imbalance]] — the other half of the sampling design.
+- [ADR-0001: sampling and class imbalance](ADR-0001-sampling-and-class-imbalance.md) —
+  the other half of the sampling design.
