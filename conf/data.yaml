@@ -11,8 +11,8 @@ source:
   # the SNAP archive. Same schema either way, so the rest of the pipeline is unaffected.
   csv_override: data/raw/Reviews.csv
   # The SNAP archive is NOT clean UTF-8 - it carries stray cp1252 bytes. We decode
-  # permissively here and record the damage in the validation report rather than
-  # letting a decode error kill the ingest.
+  # permissively and count the replacements, which the ingest stage reports on stdout
+  # (1,789 on the current corpus), rather than letting one bad byte kill the ingest.
   encoding: utf-8
   encoding_errors: replace
 
@@ -42,7 +42,7 @@ language_filter:
 
 sample:
   # Sized down from the full ~568K rows so the pipeline runs end-to-end on a laptop.
-  # Justified in docs/decisions/ADR-0001.
+  # Justified in docs/decisions/ADR-0001-sampling-and-class-imbalance.md.
   size: 60000
   # "proportional" preserves the real (imbalanced) class distribution. Imbalance is
   # handled at training time via class weighting, not by distorting the sample.
@@ -50,8 +50,8 @@ sample:
   seed: 42
   # Language ID is the expensive part of this stage, so it runs on an oversampled
   # candidate pool rather than all ~567K validated rows: we draw size * this factor,
-  # filter to English, then take the final proportional sample from the survivors.
-  # Same end result, bounded cost. See ADR-0002.
+  # drop duplicate normalised texts, filter to English, then take the final proportional
+  # sample from the survivors. Same end result, bounded cost. See ADR-0002 and ADR-0005.
   language_filter_oversample: 1.25
   splits:
     train: 0.70

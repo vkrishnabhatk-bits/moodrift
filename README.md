@@ -59,7 +59,7 @@ so a discrete GPU is not required.
 Four planes, each runnable on its own. Only the first two exist today.
 
 ```
-Data plane          raw → validate → sample → feature store → DVC tag      ✅ built
+Data plane          download → validate → sample → feature store → DVC tag ✅ built
 Experiment plane    config → train tiers → evaluate → MLflow → registry    ✅ built
 Serving plane       registry → ONNX → FastAPI → Docker → /predict          ⬜ week 3
 Observability plane prediction log → drift → trigger → retrain             ⬜ week 3
@@ -88,9 +88,11 @@ single SQLite file, and the cross-split text deduplication that removed ~13% tes
 
 ## Known limitations
 
-- English only, enforced at ingestion.
+- English only. The filter runs in the sample stage rather than at ingestion, on an
+  oversampled candidate pool - same end result, a fraction of the compute (ADR-0002).
 - Trained on food-product reviews from 2012 and earlier; language and products have moved on.
-- No sarcasm handling — the worst misclassifications are dominated by it.
+- No sarcasm handling. It shows up clearly among the worst misclassifications: a 5-star
+  review opening "made in china... so what?" is predicted 1-star at 93% confidence.
 - Label noise is real: some 5-star reviews describe delivery problems rather than the product.
 
 ## Roadmap

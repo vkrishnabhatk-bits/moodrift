@@ -27,8 +27,9 @@ no compilation step.
 
 **Apply the filter in the sample stage**, to an oversampled candidate pool
 (`sample.language_filter_oversample: 1.25`), rather than to the full validated corpus. The
-pipeline draws 75,000 candidates, filters those to English, and takes the final 60,000
-proportional sample from the survivors.
+pipeline draws 75,000 candidates, removes duplicate normalised texts (ADR-0005, 7,485 rows),
+filters the remainder to English, and takes the final 60,000 proportional sample from the
+survivors.
 
 ## Alternatives considered
 
@@ -43,7 +44,7 @@ the compute, because only the candidate pool is ever examined.
 
 **`langdetect` / `lingua`.** `lingua` is more accurate but substantially slower;
 `langdetect` is non-deterministic without explicit seeding, which conflicts with the
-reproducibility requirement in M3.
+project's reproducibility requirement.
 
 ## Consequences
 

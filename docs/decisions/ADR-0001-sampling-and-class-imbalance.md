@@ -22,7 +22,7 @@ the imbalance.
 
 On volume: the full corpus is workable for TF-IDF but not for repeatedly embedding every
 row on a laptop during a compressed three-week build, and the fine-tune in tier 3 has to
-fit inside a free Colab session.
+fit inside a single GPU session.
 
 On imbalance: it is tempting to balance the sample so that every class has equal
 representation, which makes training simpler and the numbers look better.
@@ -30,8 +30,8 @@ representation, which makes training simpler and the numbers look better.
 ## Decision
 
 **Sample 60,000 rows, stratified proportionally**, preserving the real class distribution.
-**Handle imbalance at training time** via `class_weight='balanced'` (tier 1 and tier 2),
-never by resampling the dataset.
+**Handle imbalance at training time**, never by resampling the dataset: `class_weight='balanced'`
+for tiers 1 and 2, and the equivalent per-class weights in the loss function for tier 3.
 
 Splits are 70/15/15, stratified and seeded (`seed: 42`), and the stage asserts that
 train/test class proportions agree to within 2 percentage points.
@@ -58,7 +58,7 @@ single config value (`sample.size`) that can be raised later if time allows.
 ## Consequences
 
 - Reported metrics reflect the real distribution, so macro-F1 is honest but *lower* than a
-  balanced-sample number would be. This is a feature; see the Week 1 results discussion.
+  balanced-sample number would be. This is a feature, not a shortfall to explain away.
 - Accuracy is a near-useless headline here (predicting 5 unconditionally scores ~0.64), so
   macro-F1 and macro-MAE carry the evaluation instead — see `src/evaluate/metrics.py`.
 - The minority classes (2 and 3 stars) will remain the weakest, and per-class F1 is

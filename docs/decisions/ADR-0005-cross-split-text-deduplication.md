@@ -65,8 +65,11 @@ Week 2 shows evidence of reviewer-level memorisation.
 
 ## Consequences
 
-- Reported metrics dropped, which is the point: they are now measurements rather than
-  flattery. The Week 1 numbers in `docs/model_comparison.md` are post-fix.
+- No model was ever trained on the leaking splits. The overlap was caught from the embed
+  cache counts before any training run, so there are no inflated "before" figures to
+  compare against - every number in `docs/model_comparison.md` is post-fix by construction.
+  The size of the inflation this avoided is therefore unmeasured, only bounded by the ~13%
+  of the test split that would have been memorised.
 - The effective sample is drawn from a slightly smaller pool; `language_filter_oversample`
   (1.25) leaves enough headroom to still reach the configured 60,000 rows.
 - Deduplication runs before the language filter, so it also reduces language-ID work.

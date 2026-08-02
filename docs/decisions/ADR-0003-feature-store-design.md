@@ -62,4 +62,4 @@ float32 bytes round-trip exactly, which `tests/test_store.py` asserts.
   recompute using the same `encode()` function the batch path used, never a different one.
   This is stated in the module docstring because it is the one way this design can fail.
 - It will not scale to millions of rows or concurrent writers, and it is not meant to.
-  The risk register in PROJECT_PLAN.md names scope creep here as a tracked risk.
+  Growing it into a platform is the failure mode to watch for, and is tracked as a risk.
