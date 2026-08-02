@@ -1,1 +1,1 @@
-"""Model training and the MLflow model registry (M3)."""
+"""Model training across the tier ladder, and the MLflow model registry."""

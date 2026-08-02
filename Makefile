@@ -22,7 +22,7 @@ setup:  ## Create the virtualenv and install dependencies
 	uv venv --python 3.11 .venv
 	$(PIP) -e ".[dev]"
 
-# ---------------------------------------------------------------- data plane (M2)
+# ------------------------------------------------------------------- data plane
 
 data:  ## Rebuild the whole data plane via DVC (only what changed)
 	$(PY) -m dvc repro
@@ -39,7 +39,7 @@ sample:  ## Stratified sample, language filter, splits, reference window
 features:  ## Embed texts and populate the feature store
 	$(PY) -m src.features.embed
 
-# ------------------------------------------------------- experimentation (M3)
+# ---------------------------------------------------------- experimentation
 
 train: tier1 tier2  ## Train and log every CPU tier
 

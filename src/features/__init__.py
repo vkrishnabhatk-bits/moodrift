@@ -1,1 +1,1 @@
-"""Feature engineering, sampling, and the feature store (M2)."""
+"""Text normalisation, sampling and splitting, embeddings, and the feature store."""

@@ -1,4 +1,4 @@
-# Data plane configuration (M2).
+# Data plane configuration.
 # Every path is relative to the repository root.
 
 source:

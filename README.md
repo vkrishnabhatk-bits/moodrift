@@ -39,7 +39,8 @@ make mlflow-ui  # browse experiments at http://127.0.0.1:5000
 
 ## How it fits together
 
-Four planes, each runnable on its own. Only the first two exist today.
+Four planes, each runnable on its own. Only the first two exist today. The `M2`–`M5`
+labels map each plane to the course module it is assessed under.
 
 ```
 Data plane (M2)          raw → validate → sample → feature store → DVC tag      ✅ built

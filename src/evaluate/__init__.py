@@ -1,1 +1,1 @@
-"""Evaluation metrics, comparison and reporting (M3)."""
+"""Metrics, model comparison, and report generation."""

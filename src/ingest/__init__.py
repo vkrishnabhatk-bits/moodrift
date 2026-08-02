@@ -1,1 +1,1 @@
-"""Data ingestion and validation (M2)."""
+"""Data ingestion, schema validation, and language filtering."""
