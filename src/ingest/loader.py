@@ -67,10 +67,10 @@ def download_archive(url: str, dest: Path) -> Path:
     """
     dest = ensure_parent(dest)
     if dest.exists() and dest.stat().st_size > 0:
-        print(f"[ingest] archive already present: {dest} ({dest.stat().st_size / 1e6:.0f} MB)")
+        print(f"[download] archive already present: {dest} ({dest.stat().st_size / 1e6:.0f} MB)")
         return dest
 
-    print(f"[ingest] downloading {url}")
+    print(f"[download] downloading {url}")
     tmp = dest.with_suffix(dest.suffix + ".part")
     with urllib.request.urlopen(url) as response, tmp.open("wb") as fh:  # noqa: S310
         total = int(response.headers.get("Content-Length", 0))
@@ -79,7 +79,7 @@ def download_archive(url: str, dest: Path) -> Path:
             fh.write(chunk)
             read += len(chunk)
             if total:
-                print(f"\r[ingest]   {read / 1e6:6.0f} / {total / 1e6:.0f} MB", end="", flush=True)
+                print(f"\r[download]   {read / 1e6:6.0f} / {total / 1e6:.0f} MB", end="", flush=True)
     print()
     tmp.rename(dest)
     return dest

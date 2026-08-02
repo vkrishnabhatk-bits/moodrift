@@ -13,7 +13,7 @@ gating logic is unchanged; only the mechanism differs. Recorded in ADR-0004.
 
 Alias meanings:
 
-* ``@candidate`` - registered, passed the M3 evaluation gate, not yet serving.
+* ``@candidate`` - registered, passed the evaluation thresholds, not yet serving.
 * ``@champion``  - current best model by the comparison report.
 * ``@production``- what the serving container actually loads (set in Week 3, after the
   smoke and load tests pass).
