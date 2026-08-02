@@ -10,7 +10,6 @@ Run with ``python -m src.evaluate.compare``.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import mlflow
