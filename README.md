@@ -79,7 +79,7 @@ Four planes, each runnable on its own. The serving plane never imports from the 
 plane — the boundary between them is one model artifact plus one config file.
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph DATA["Data plane — built"]
         RAW["raw archive<br/>finefoods.txt.gz<br/>content-hashed"]
         ING["ingest<br/>parse to parquet"]
