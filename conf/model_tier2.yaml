@@ -1,0 +1,31 @@
+# Tier 2 - frozen MiniLM sentence embeddings into a gradient-boosted head.
+# Embeddings are computed once by the feature-store stage and reused here, so this
+# trains from cached vectors rather than re-running the encoder.
+
+name: tier2_minilm_lightgbm
+seed: 42
+
+embedding:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 128
+  max_seq_length: 256
+  normalize: true
+
+classifier:
+  type: lightgbm
+  params:
+    objective: multiclass
+    num_class: 5
+    learning_rate: 0.08
+    num_leaves: 63
+    n_estimators: 600
+    min_child_samples: 20
+    subsample: 0.9
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    # Same imbalance strategy as tier 1, applied through sample weights.
+    class_weight: balanced
+    n_jobs: -1
+    verbosity: -1
+  early_stopping_rounds: 50
