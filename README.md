@@ -73,16 +73,75 @@ Tier 3 needs a GPU and is run separately: `python -m src.train.tier3`. It auto-s
 CUDA, then Apple Silicon (MPS), then CPU — the published run took 52 minutes on an M1 Pro,
 so a discrete GPU is not required.
 
-## How it fits together
+## Architecture
 
-Four planes, each runnable on its own. Only the first two exist today.
+Four planes, each runnable on its own. The serving plane never imports from the training
+plane — the boundary between them is one model artifact plus one config file.
 
+```mermaid
+flowchart TD
+    subgraph DATA["Data plane — built"]
+        RAW["raw archive<br/>finefoods.txt.gz<br/>content-hashed"]
+        ING["ingest<br/>parse to parquet"]
+        VAL["validate<br/>Pandera schema"]
+        REJ["quarantine<br/>1,314 rows + reason"]
+        SAM["sample<br/>dedupe · English · 70/15/15"]
+        SPL["splits<br/>42k / 9k / 9k · DVC"]
+        REF["reference window<br/>5,000 rows · frozen"]
+        EMB["embed<br/>MiniLM"]
+        FS["feature store<br/>SQLite key-value"]
+        RAW --> ING --> VAL --> SAM
+        VAL -.-> REJ
+        SAM --> SPL
+        SAM --> REF
+        SPL --> EMB --> FS
+    end
+
+    subgraph EXP["Experiment plane — built"]
+        T1["tier 1<br/>TF-IDF + LogReg"]
+        T2["tier 2<br/>MiniLM + LightGBM"]
+        T3["tier 3<br/>DistilRoBERTa<br/>champion"]
+        MLF["MLflow<br/>runs · metrics · artifacts"]
+        CMP["compare + gates<br/>F1 · CI · latency · size"]
+        REG["model registry<br/>@candidate → @champion → @production"]
+        T1 --> MLF
+        T2 --> MLF
+        T3 --> MLF
+        MLF --> CMP --> REG
+    end
+
+    subgraph SRV["Serving plane — week 3"]
+        RT["runtime<br/>ONNX + INT8"]
+        API["FastAPI<br/>/predict · /model/info · /metrics"]
+        PLOG["prediction log<br/>JSONL"]
+        RT --> API --> PLOG
+    end
+
+    subgraph OBS["Observability plane — week 3"]
+        DET["drift detectors<br/>PSI · KS · domain clf · rolling F1"]
+        TRG["trigger<br/>WATCH → CANDIDATE → FIRE → PROMOTE"]
+        DET --> TRG
+    end
+
+    SPL --> T1
+    SPL --> T3
+    FS --> T2
+    FS --> RT
+    REG --> RT
+    PLOG --> DET
+    REF --> DET
+    TRG -.->|"retrain event"| T3
+
+    classDef built fill:#e8f4ea,stroke:#4a7c59,color:#1b3a24
+    classDef planned fill:#f2f2f2,stroke:#999,color:#333,stroke-dasharray: 4 3
+    class RAW,ING,VAL,REJ,SAM,SPL,REF,EMB,FS,T1,T2,T3,MLF,CMP,REG built
+    class RT,API,PLOG,DET,TRG planned
 ```
-Data plane          download → validate → sample → feature store → DVC tag ✅ built
-Experiment plane    config → train tiers → evaluate → MLflow → registry    ✅ built
-Serving plane       registry → ONNX → FastAPI → Docker → /predict          ⬜ week 3
-Observability plane prediction log → drift → trigger → retrain             ⬜ week 3
-```
+
+Green is built and running today; grey dashed is designed and scheduled for Week 3 — the
+[API contract](docs/api_contract.md) and [drift design](docs/drift_design.md) specify both.
+The dashed line from the trigger back to training is the retraining loop: the trigger emits
+an event and does **not** train, so the decision stays auditable on its own.
 
 Text normalisation lives in one place (`src/features/clean.py`) and is shared by training and
 serving, and features are cached in a SQLite feature store keyed by a hash of the normalised
