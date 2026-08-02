@@ -1,0 +1,164 @@
+schema: '2.0'
+stages:
+  ingest:
+    cmd: python -m src.ingest.loader
+    deps:
+    - path: src/config.py
+      hash: md5
+      md5: 840b8496424c2add11da0698bc1f1f82
+      size: 1128
+    - path: src/ingest/loader.py
+      hash: md5
+      md5: 898e102c9938e8001973fb489902da5e
+      size: 8137
+    params:
+      conf/data.yaml:
+        paths:
+          parsed: data/interim/reviews.parquet
+          validated: data/interim/validated.parquet
+          rejected: data/interim/rejected/rejected.parquet
+          quality_report: docs/data_quality_report.md
+          train: data/processed/train.parquet
+          val: data/processed/val.parquet
+          test: data/processed/test.parquet
+          reference: data/reference/reference.parquet
+        source:
+          name: amazon-fine-food-reviews
+          url: https://snap.stanford.edu/data/finefoods.txt.gz
+          archive: data/raw/finefoods.txt.gz
+          csv_override: data/raw/Reviews.csv
+          encoding: utf-8
+          encoding_errors: replace
+    outs:
+    - path: data/interim/reviews.parquet
+      hash: md5
+      md5: 302656d3c6ddc5ca8b3012b462d0c203
+      size: 125197486
+  validate:
+    cmd: python -m src.ingest.schema
+    deps:
+    - path: data/interim/reviews.parquet
+      hash: md5
+      md5: 302656d3c6ddc5ca8b3012b462d0c203
+      size: 125197486
+    - path: src/ingest/schema.py
+      hash: md5
+      md5: e269cb55c84147262e0abacfd8e252af
+      size: 7770
+    params:
+      conf/data.yaml:
+        validation:
+          valid_scores:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          min_text_chars: 1
+          max_text_chars: 20000
+    outs:
+    - path: data/interim/rejected/rejected.parquet
+      hash: md5
+      md5: 6084b0d79f23dab6d1d19aa2f2d5ebff
+      size: 110717
+    - path: data/interim/validated.parquet
+      hash: md5
+      md5: 49a602bc0ad13a13c20ea90538af6449
+      size: 123748853
+    - path: docs/data_quality_report.md
+      hash: md5
+      md5: 5ba87343a92c564fba20a96a9b55ffb9
+      size: 1028
+  sample:
+    cmd: python -m src.features.sample
+    deps:
+    - path: data/interim/validated.parquet
+      hash: md5
+      md5: 49a602bc0ad13a13c20ea90538af6449
+      size: 123748853
+    - path: src/features/clean.py
+      hash: md5
+      md5: 71f3701f13f70d7e46a69d9fa63b49c6
+      size: 3861
+    - path: src/features/sample.py
+      hash: md5
+      md5: d6774b755a101ae1dfba8b90195d4536
+      size: 7318
+    - path: src/ingest/language_filter.py
+      hash: md5
+      md5: 0246c4f419ce4ccc6f8785cee6156e9a
+      size: 2354
+    params:
+      conf/data.yaml:
+        language_filter:
+          enabled: true
+          target: en
+          min_confidence: 0.9
+          min_chars_for_detection: 25
+        sample:
+          size: 60000
+          strategy: proportional
+          seed: 42
+          language_filter_oversample: 1.25
+          splits:
+            train: 0.7
+            val: 0.15
+            test: 0.15
+          reference_window_size: 5000
+    outs:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 42741dd9a394050db5cbdbd5fec07bbb
+      size: 4254756
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 78e9f60039e0e1a8aba43ea9d61342c2
+      size: 19798178
+    - path: data/processed/val.parquet
+      hash: md5
+      md5: 92223f56da3a424e3663c106ab19ebb4
+      size: 4266629
+    - path: data/reference/reference.parquet
+      hash: md5
+      md5: 199791875049a15d7fefe90bd7069eae
+      size: 2381967
+  features:
+    cmd: python -m src.features.embed
+    deps:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 42741dd9a394050db5cbdbd5fec07bbb
+      size: 4254756
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 78e9f60039e0e1a8aba43ea9d61342c2
+      size: 19798178
+    - path: data/processed/val.parquet
+      hash: md5
+      md5: 92223f56da3a424e3663c106ab19ebb4
+      size: 4266629
+    - path: data/reference/reference.parquet
+      hash: md5
+      md5: 199791875049a15d7fefe90bd7069eae
+      size: 2381967
+    - path: src/features/embed.py
+      hash: md5
+      md5: 8c42939fce1a46182e2d7d874b00c4ad
+      size: 4183
+    - path: src/features/store.py
+      hash: md5
+      md5: 8c44c9d7b7c9cd1df915b359c5909851
+      size: 7013
+    params:
+      conf/model_tier2.yaml:
+        embedding:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          dimension: 384
+          batch_size: 128
+          max_seq_length: 256
+          normalize: true
+    outs:
+    - path: data/feature_store/features.db
+      hash: md5
+      md5: 16f1a7a1deca03d90e266a819239bab0
+      size: 141787136

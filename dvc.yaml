@@ -1,0 +1,67 @@
+# The data plane as a reproducible DAG. `dvc repro` rebuilds only what changed.
+#
+# Stage boundaries mirror PROJECT_PLAN.md section 3, with one deliberate merge: the plan
+# lists `features` and `feature_store` separately, but computing an embedding and writing
+# it to the store is a single operation - splitting it would mean serialising every vector
+# twice for no benefit. The tier-1 TF-IDF vectoriser is intentionally NOT a stage here: it
+# is fit inside the tier-1 training pipeline on the training split only, which is what
+# keeps test vocabulary out of it.
+
+stages:
+  ingest:
+    cmd: python -m src.ingest.loader
+    deps:
+      - src/ingest/loader.py
+      - src/config.py
+    params:
+      - conf/data.yaml:
+          - source
+          - paths
+    outs:
+      - data/interim/reviews.parquet
+
+  validate:
+    cmd: python -m src.ingest.schema
+    deps:
+      - src/ingest/schema.py
+      - data/interim/reviews.parquet
+    params:
+      - conf/data.yaml:
+          - validation
+    outs:
+      - data/interim/validated.parquet
+      - data/interim/rejected/rejected.parquet
+      - docs/data_quality_report.md:
+          cache: false
+
+  sample:
+    cmd: python -m src.features.sample
+    deps:
+      - src/features/sample.py
+      - src/features/clean.py
+      - src/ingest/language_filter.py
+      - data/interim/validated.parquet
+    params:
+      - conf/data.yaml:
+          - sample
+          - language_filter
+    outs:
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+      - data/reference/reference.parquet
+
+  features:
+    cmd: python -m src.features.embed
+    deps:
+      - src/features/embed.py
+      - src/features/store.py
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+      - data/reference/reference.parquet
+    params:
+      - conf/model_tier2.yaml:
+          - embedding
+    outs:
+      - data/feature_store/features.db
