@@ -1,0 +1,23 @@
+# Tier 3 - fine-tuned DistilRoBERTa. The only tier that needs a GPU.
+#
+# Sized for a free Colab/Kaggle T4 session: roughly 20-40 minutes at these settings.
+# Run it at the end of Week 1, before the travel week, per the compute plan.
+
+name: tier3_distilroberta
+seed: 42
+
+base_model: distilroberta-base
+num_labels: 5
+
+# 256 tokens covers the large majority of reviews in this corpus; 512 roughly doubles
+# training time for the tail. Revisit if the truncation rate looks high.
+max_length: 256
+
+epochs: 2
+batch_size: 32
+learning_rate: 2.0e-5
+warmup_ratio: 0.1
+
+# Optional cap on training rows, to fit inside a free-tier session. Leave null to use
+# the full 42k training split.
+subsample: null

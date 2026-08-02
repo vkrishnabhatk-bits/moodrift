@@ -23,7 +23,7 @@ Alias meanings:
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -104,10 +104,8 @@ def register(run_id: str, artifact_name: str, alias: str | None = None) -> Any:
     """Register a run's model and optionally point an alias at the new version."""
     setup()
     client = mlflow.tracking.MlflowClient()
-    try:
-        client.create_registered_model(REGISTERED_MODEL)
-    except mlflow.exceptions.MlflowException:
-        pass  # already exists
+    with suppress(mlflow.exceptions.MlflowException):
+        client.create_registered_model(REGISTERED_MODEL)  # already exists on later runs
 
     version = mlflow.register_model(f"runs:/{run_id}/{artifact_name}", REGISTERED_MODEL)
     if alias:
