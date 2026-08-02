@@ -17,7 +17,12 @@ from src.config import REPO_ROOT
 
 
 def git_sha(short: bool = False) -> str:
-    """Current commit SHA, suffixed with ``-dirty`` when the tree has local changes.
+    """Current commit SHA, suffixed with ``-dirty`` when *tracked* files are modified.
+
+    Untracked files are excluded deliberately. This repository permanently carries a few
+    untracked local-only documents, so counting them would mark every run dirty forever -
+    and a flag that can never be clean tells you nothing. What matters for provenance is
+    whether the committed code that produced a model differs from what is on disk.
 
     Returns ``"unknown"`` outside a git checkout rather than raising - provenance is
     best-effort metadata and must never break a training run.
@@ -26,7 +31,10 @@ def git_sha(short: bool = False) -> str:
         args = ["git", "rev-parse", "--short" if short else "HEAD"]
         sha = subprocess.check_output(args, cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL).strip()
         dirty = subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=REPO_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
         ).strip()
         return f"{sha}-dirty" if dirty else sha
     except (subprocess.CalledProcessError, FileNotFoundError):
