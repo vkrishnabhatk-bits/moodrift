@@ -3,10 +3,10 @@
 Predicts a 1–5 star rating from free-text product reviews, built as a full MLOps pipeline:
 ingest → validate → version → train/compare → serve → monitor → retrain-trigger.
 
-> **Status: Week 1 of 4 complete.** The data plane and CPU baselines work end to end.
-> Serving (FastAPI/ONNX) and monitoring (drift detection, retraining triggers) are designed
-> but not yet built — see the roadmap below. This README is deliberately brief and gets
-> finalised in Week 4.
+> **Status: Week 1 of 4 complete.** The data plane and all three model tiers work end to
+> end. Serving (FastAPI/ONNX) and monitoring (drift detection, retraining triggers) are
+> designed but not yet built — see the roadmap below. This README is deliberately brief
+> and gets finalised in Week 4.
 
 ## Current results
 
@@ -15,12 +15,21 @@ this corpus is 5-star, so predicting 5 unconditionally already scores 0.64.
 
 | Tier | Model | Macro-F1 | Macro-MAE | Within 1 star |
 |---|---|---|---|---|
-| 1 | TF-IDF + logistic regression | **0.5137** | **0.628** | 92.5% |
+| 1 | TF-IDF + logistic regression | 0.5137 | 0.628 | 92.5% |
 | 2 | MiniLM embeddings + LightGBM | 0.4292 | 1.000 | 88.4% |
-| 3 | Fine-tuned DistilRoBERTa | *pending* | | |
+| **3** | **Fine-tuned DistilRoBERTa** | **0.6001** | **0.4226** | **96.7%** |
 
-Tier 1 is the current champion — the cheap model is winning. Full breakdown in
-[`docs/model_comparison.md`](docs/model_comparison.md).
+**Tier 3 is the champion**, and the confidence intervals do not overlap, so the margin is
+real rather than run-to-run noise. Two results worth reading twice:
+
+- **Plain TF-IDF beat the sentence-embedding tier by 8.5 points.** "Use a transformer" is
+  not automatically right; the ladder is what showed which was which.
+- **The fine-tune's gain sits in the minority classes**, which is what macro-F1 exists to
+  measure: 2-star F1 goes 0.288 → 0.449 and 3-star 0.386 → 0.498, while 5-star barely
+  moves. Accuracy would have hidden this — tiers 1 and 2 score within 0.2 points of each
+  other on it.
+
+Full breakdown in [`docs/model_comparison.md`](docs/model_comparison.md).
 
 ## Quickstart
 
@@ -29,13 +38,21 @@ automatically (Stanford SNAP, no credentials needed).
 
 ```bash
 make setup      # create .venv and install dependencies
-make data       # run the full data pipeline via DVC (~10 min, downloads 122MB)
+make data       # run the full data pipeline via DVC (~15 min, downloads 122MB)
 make train      # train and log tiers 1 and 2 to MLflow
 make compare    # regenerate the model comparison report
 make mlflow-ui  # browse experiments at http://127.0.0.1:5000
 ```
 
-`make help` lists every target. Tier 3 needs a GPU: `python -m src.train.tier3`.
+`make help` lists every target.
+
+`make data` needs no credentials and no DVC remote: it downloads the corpus from a public
+URL and rebuilds every split. Verified from a clean clone — the regenerated splits are
+byte-identical to the ones the published models were trained on.
+
+Tier 3 needs a GPU and is run separately: `python -m src.train.tier3`. It auto-selects
+CUDA, then Apple Silicon (MPS), then CPU — the published run took 52 minutes on an M1 Pro,
+so a discrete GPU is not required.
 
 ## How it fits together
 
@@ -80,7 +97,7 @@ single SQLite file, and the cross-split text deduplication that removed ~13% tes
 
 | Week | Scope | State |
 |---|---|---|
-| 1 | Data plane, versioning, CPU baselines | ✅ complete (`week1-data`) |
+| 1 | Data plane, versioning, all three model tiers | ✅ complete (`week1-data`) |
 | 2 | Comparison report, model registry, `make reproduce` | next |
 | 3 | FastAPI serving + drift monitoring and retraining triggers | planned |
 | 4 | Documentation, hardening, demo | planned |
