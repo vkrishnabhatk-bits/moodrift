@@ -33,11 +33,16 @@ class TestNormalisation:
     def test_product_codes_become_a_token(self):
         assert "<product>" in normalise("I ordered B001E4KFG0 last week")
 
-    def test_elongation_is_collapsed_not_stripped(self):
-        out = normalise("sooooo goooood")
-        # Emphasis is signal, so some doubling remains; the unbounded variant does not.
-        assert "soo" in out
-        assert "sooo" not in out
+    def test_elongation_is_collapsed_to_exactly_two_characters(self):
+        """Pins the exact output.
+
+        An earlier version asserted only that "soo" appeared and "sooo" did not, which was
+        loose enough that the module docstring documented the wrong result ("soo goood")
+        for some time without any test failing.
+        """
+        assert normalise("sooooo goooood") == "soo good"
+        assert normalise("aaa") == "aa"
+        assert normalise("aa") == "aa"  # runs of two are already short enough to keep
 
     def test_zero_width_characters_removed(self):
         assert normalise("good​product") == "goodproduct"

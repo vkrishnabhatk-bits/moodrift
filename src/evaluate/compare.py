@@ -41,6 +41,9 @@ def fetch_runs() -> pd.DataFrame:
         filter_string="attributes.status = 'FINISHED'",
         order_by=["attributes.start_time DESC"],
     )
+    # search_runs is typed as DataFrame | list[Run]; it only returns the list form when
+    # output_format="list" is passed, which it never is here.
+    assert isinstance(runs, pd.DataFrame)
     if runs.empty or "tags.tier" not in runs.columns:
         return pd.DataFrame()
     return runs.dropna(subset=["tags.tier"]).drop_duplicates(subset=["tags.tier"], keep="first")

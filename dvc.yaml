@@ -1,11 +1,17 @@
 # The data plane as a reproducible DAG. `dvc repro` rebuilds only what changed.
 #
-# Stage boundaries mirror PROJECT_PLAN.md section 3, with one deliberate merge: the plan
-# lists `features` and `feature_store` separately, but computing an embedding and writing
-# it to the store is a single operation - splitting it would mean serialising every vector
-# twice for no benefit. The tier-1 TF-IDF vectoriser is intentionally NOT a stage here: it
-# is fit inside the tier-1 training pipeline on the training split only, which is what
-# keeps test vocabulary out of it.
+# Embedding and writing to the feature store are one stage, not two: they are a single
+# operation, and splitting them would mean serialising every vector twice for no benefit.
+#
+# The tier-1 TF-IDF vectoriser is intentionally NOT a stage here. It is fit inside the
+# tier-1 training pipeline on the training split only, which is what keeps test vocabulary
+# out of it.
+#
+# Every stage lists the shared modules it imports (src/config.py for path and config
+# resolution, src/provenance.py for hashing and seeding). Omitting them is a silent
+# correctness hole: text_key() in provenance.py determines every feature-store key, so a
+# change there must invalidate the sampling and feature stages rather than leaving stale
+# outputs that no longer match the code that produced them.
 
 stages:
   download:
@@ -18,6 +24,7 @@ stages:
     deps:
       - src/ingest/download.py
       - src/ingest/loader.py
+      - src/config.py
     params:
       - conf/data.yaml:
           - source
@@ -46,6 +53,7 @@ stages:
     cmd: python -m src.ingest.schema
     deps:
       - src/ingest/schema.py
+      - src/config.py
       - data/interim/reviews.parquet
     params:
       - conf/data.yaml:
@@ -62,6 +70,8 @@ stages:
       - src/features/sample.py
       - src/features/clean.py
       - src/ingest/language_filter.py
+      - src/config.py
+      - src/provenance.py
       - data/interim/validated.parquet
     params:
       - conf/data.yaml:
@@ -78,6 +88,8 @@ stages:
     deps:
       - src/features/embed.py
       - src/features/store.py
+      - src/config.py
+      - src/provenance.py
       - data/processed/train.parquet
       - data/processed/val.parquet
       - data/processed/test.parquet

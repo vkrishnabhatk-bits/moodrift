@@ -96,8 +96,10 @@ def train() -> dict[str, Any]:
 
         results = {}
         for name, X, frame in (("val", X_val, val_df), ("test", X_test, test_df)):
-            proba = model.predict_proba(X)
-            y_pred = model.classes_[proba.argmax(axis=1)]
+            # LightGBM's sklearn wrapper types predict_proba loosely; pin it so the
+            # argmax below (and the diagnostics helper) get a real ndarray.
+            proba = np.asarray(model.predict_proba(X))
+            y_pred = np.asarray(model.classes_)[proba.argmax(axis=1)]
             y_true = frame[LABEL].to_numpy()
 
             metrics = compute_metrics(y_true, y_pred)

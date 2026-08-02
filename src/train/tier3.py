@@ -1,8 +1,10 @@
 """Tier 3: fine-tuned DistilRoBERTa, the only tier that needs a GPU.
 
-Written to run in a free Colab or Kaggle T4 session, not on the laptop that runs the rest
-of the pipeline. It reads the same DVC-versioned splits and logs to the same MLflow
-experiment, so its run sits directly alongside tiers 1 and 2 in the comparison.
+Runs wherever a GPU is available - CUDA, then Apple Silicon (MPS), then CPU. The published
+run took 52 minutes on an M1 Pro via MPS; a free Colab/Kaggle T4 is roughly twice as fast
+but costs a data upload and a second tracking store to reconcile. It reads the same
+DVC-versioned splits and logs to the same MLflow experiment either way, so the run sits
+directly alongside tiers 1 and 2 in the comparison.
 
 Deliberately plain PyTorch rather than ``Trainer``: the loop is short, it avoids pulling
 ``accelerate``/``datasets`` into the serving image, and every choice that matters here
@@ -16,8 +18,7 @@ Two details that are easy to get wrong:
 * **Class weights come from the training split only**, matching how tiers 1 and 2 handle
   the same imbalance (ADR-0001). Computing them over the whole dataset would leak.
 
-Run with ``python -m src.train.tier3`` on a GPU box, or paste the equivalent into a
-notebook cell after ``dvc pull``.
+Run with ``python -m src.train.tier3``.
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ def train() -> dict[str, Any]:
 
     device = _select_device()
     if device == "cpu":
-        print("[tier3] WARNING: no GPU detected. This will take hours - run on Colab/Kaggle instead.")
+        print("[tier3] WARNING: no GPU detected. Expect hours rather than ~1h; use a machine with CUDA or MPS.")
     print(f"[tier3] device: {device}")
 
     train_df, val_df, test_df = (load_split(s) for s in ("train", "val", "test"))
@@ -159,7 +160,7 @@ def train() -> dict[str, Any]:
 
         mlflow.log_metric("train_seconds", time.time() - started)
 
-        results = {}
+        results: dict[str, Any] = {}
         for name, frame in (("val", val_df), ("test", test_df)):
             y_pred, confidence = _predict(model, loaders[name], device)
             y_true = frame[LABEL].to_numpy()

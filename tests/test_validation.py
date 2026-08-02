@@ -87,7 +87,7 @@ class TestRejectionRules:
         """Both are genuine records, so validation keeps them.
 
         Cross-split leakage from identical text is a *modelling* concern and is handled
-        later, in the sample stage - see test_sampling_deduplicates_text.
+        later, in the sample stage - see tests/test_sampling.py.
         """
         df = pd.DataFrame([make_row(Id=1, UserId="U1"), make_row(Id=2, UserId="U2")])
         assert reasons(df, cfg).isna().all()

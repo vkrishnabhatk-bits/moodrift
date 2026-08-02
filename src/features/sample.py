@@ -64,9 +64,25 @@ def load_split(name: str) -> pd.DataFrame:
 
 
 def _proportional_sample(df: pd.DataFrame, size: int, seed: int) -> pd.DataFrame:
-    """Stratified subset that preserves the source class proportions."""
+    """Stratified subset that preserves the source class proportions.
+
+    Raises a clear error when ``size`` is smaller than the number of classes. Stratified
+    sampling cannot satisfy that request, and sklearn's own message ("train_size = 1
+    should be greater or equal to the number of classes = 5") gives no hint about which
+    config value caused it. Silently falling back to an unstratified draw would be worse:
+    it would quietly break the proportionality guarantee this function exists to provide.
+    """
     if size >= len(df):
         return df.copy()
+
+    n_classes = df[LABEL].nunique()
+    if size < n_classes:
+        raise ValueError(
+            f"cannot draw a stratified sample of {size} rows across {n_classes} classes - "
+            "every class needs at least one row. Raise sample.size (or "
+            "sample.reference_window_size) in conf/data.yaml."
+        )
+
     subset, _ = train_test_split(df, train_size=size, stratify=df[LABEL], random_state=seed)
     return subset
 
