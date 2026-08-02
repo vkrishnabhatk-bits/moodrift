@@ -13,8 +13,8 @@ stages:
       size: 1128
     - path: src/ingest/loader.py
       hash: md5
-      md5: 898e102c9938e8001973fb489902da5e
-      size: 8137
+      md5: 99d5dc504b953c2af37fe62f56c39592
+      size: 8457
     params:
       conf/data.yaml:
         paths:
@@ -45,6 +45,10 @@ stages:
       hash: md5
       md5: 302656d3c6ddc5ca8b3012b462d0c203
       size: 125197486
+    - path: src/config.py
+      hash: md5
+      md5: 840b8496424c2add11da0698bc1f1f82
+      size: 1128
     - path: src/ingest/schema.py
       hash: md5
       md5: e269cb55c84147262e0abacfd8e252af
@@ -80,18 +84,26 @@ stages:
       hash: md5
       md5: 49a602bc0ad13a13c20ea90538af6449
       size: 123748853
+    - path: src/config.py
+      hash: md5
+      md5: 840b8496424c2add11da0698bc1f1f82
+      size: 1128
     - path: src/features/clean.py
       hash: md5
-      md5: 71f3701f13f70d7e46a69d9fa63b49c6
-      size: 3861
+      md5: 78fadbdc4a94acb4e0f7627cdbae91b6
+      size: 3885
     - path: src/features/sample.py
       hash: md5
-      md5: d6774b755a101ae1dfba8b90195d4536
-      size: 7318
+      md5: e6b94e51ef0c788587b68e506cce2675
+      size: 8631
     - path: src/ingest/language_filter.py
       hash: md5
-      md5: 0246c4f419ce4ccc6f8785cee6156e9a
-      size: 2354
+      md5: 82bcd249006447c415091d44a291b945
+      size: 2367
+    - path: src/provenance.py
+      hash: md5
+      md5: 799e1b6b35ce31f1f1995ec643803acd
+      size: 2825
     params:
       conf/data.yaml:
         language_filter:
@@ -145,14 +157,22 @@ stages:
       hash: md5
       md5: 199791875049a15d7fefe90bd7069eae
       size: 2381967
+    - path: src/config.py
+      hash: md5
+      md5: 840b8496424c2add11da0698bc1f1f82
+      size: 1128
     - path: src/features/embed.py
       hash: md5
       md5: 8c42939fce1a46182e2d7d874b00c4ad
       size: 4183
     - path: src/features/store.py
       hash: md5
-      md5: 8c44c9d7b7c9cd1df915b359c5909851
-      size: 7013
+      md5: 935f611467a8c5300b04aa251a09b1ee
+      size: 7033
+    - path: src/provenance.py
+      hash: md5
+      md5: 799e1b6b35ce31f1f1995ec643803acd
+      size: 2825
     params:
       conf/model_tier2.yaml:
         embedding:
@@ -164,19 +184,23 @@ stages:
     outs:
     - path: data/feature_store/features.db
       hash: md5
-      md5: 16f1a7a1deca03d90e266a819239bab0
-      size: 141787136
+      md5: 9ba19adcd911683d49388000a1305ef3
+      size: 129114112
   download:
     cmd: python -m src.ingest.download
     deps:
+    - path: src/config.py
+      hash: md5
+      md5: 840b8496424c2add11da0698bc1f1f82
+      size: 1128
     - path: src/ingest/download.py
       hash: md5
       md5: d269f30faf63f09902c7a29779e2af13
       size: 2155
     - path: src/ingest/loader.py
       hash: md5
-      md5: 898e102c9938e8001973fb489902da5e
-      size: 8137
+      md5: 99d5dc504b953c2af37fe62f56c39592
+      size: 8457
     params:
       conf/data.yaml:
         source:

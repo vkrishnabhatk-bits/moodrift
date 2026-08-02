@@ -4,21 +4,23 @@ version = "0.1.0"
 description = "End-to-end MLOps pipeline for review-rating classification with drift-triggered retraining"
 requires-python = ">=3.11,<3.12"
 
-# Direct dependencies carry lower bounds only; the exact resolved versions are frozen
-# into requirements.lock.txt, which is what CI and Docker install from. Pinning in one
-# place (the lock) avoids the two files drifting apart.
+# Direct dependencies carry lower bounds only; the exact resolved versions are frozen into
+# requirements.lock.txt (`make freeze`). Pinning in one place avoids the two files drifting
+# apart. Nothing else installs from the lock yet - CI and container builds arrive in a
+# later week, and this comment previously claimed they already did.
+#
+# Only packages this project actually imports are listed. Transitive dependencies belong in
+# the lock, not here.
 dependencies = [
     # data
     "pandas>=2.2",
     "pyarrow>=18.0",
     "pandera>=0.22,<0.24",
     "numpy>=1.26",
-    # versioning + tracking
+    # versioning + tracking. dvc is invoked as a CLI (`python -m dvc repro`), never imported.
     "dvc>=3.59",
     "mlflow>=2.19",
     # config
-    "pydantic>=2.10",
-    "pydantic-settings>=2.7",
     "pyyaml>=6.0",
     # modelling
     "scikit-learn>=1.6",
@@ -27,9 +29,6 @@ dependencies = [
     "torch>=2.5",
     # language identification (tier 0)
     "py3langid>=0.3",
-    # utilities
-    "tqdm>=4.67",
-    "structlog>=24.4",
 ]
 
 [project.optional-dependencies]
