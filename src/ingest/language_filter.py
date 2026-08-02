@@ -1,8 +1,8 @@
 """Tier 0: language identification, used to keep the corpus English-only.
 
-The plan specifies fastText ``lid.176.ftz``. We use ``py3langid`` instead - the same
-langid.py 97-language model, but pure Python with no compilation step, which matters
-because fastText has no prebuilt wheel for this platform. Accuracy on review-length
+fastText ``lid.176.ftz`` is the conventional choice here. We use ``py3langid`` instead -
+the same langid.py 97-language model, but pure Python with no compilation step, which
+matters because fastText has no prebuilt wheel for this platform. Accuracy on review-length
 text is equivalent for our purpose (a coarse keep/drop gate), and the swap removes a
 build dependency from every developer machine and container.
 

@@ -8,8 +8,9 @@ and nobody notices until accuracy quietly rots.
 Deliberate choices, all of which cost accuracy if reversed on this corpus:
 
 * **Negations are preserved.** "not good" must not become "good". No stopword removal.
-* **Elongation is collapsed, not stripped.** "sooooo goooood" -> "soo goood": the
-  emphasis is signal for star rating, but the unbounded variants fragment the vocabulary.
+* **Elongation is collapsed to two characters, not stripped.** "sooooo goooood" becomes
+  "soo good": the emphasis is signal for star rating, but the unbounded variants fragment
+  the vocabulary.
 * **URLs and HTML are replaced with tokens**, not deleted, so their presence stays
   visible to the model (this corpus contains a lot of raw ``<br />``).
 * **Case is preserved.** Lowercasing is left to the vectoriser, so the char n-grams and

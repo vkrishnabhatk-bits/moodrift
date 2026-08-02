@@ -2,7 +2,8 @@
 
 Scope is capped on purpose (single file, no service, no TTL, no eviction). It exists to
 demonstrate the offline/online feature pattern with a real read path, not to be
-production infrastructure - see ADR-0003 and the risk register in PROJECT_PLAN.md.
+production infrastructure - see ADR-0003. Growing it into a platform is the failure mode
+to watch for.
 
 The contract that makes it worth having:
 

@@ -1,22 +1,25 @@
 """Tier-1 features: combined word and character TF-IDF.
 
-The vectoriser is **fit on the training split only** and persisted as an artifact. Fitting
-on all rows (or re-fitting at evaluation) would leak test vocabulary and inflate every
-metric downstream - the single most common silent bug in text pipelines.
+The vectoriser is **fit on the training split only**. Fitting on all rows (or re-fitting at
+evaluation) would leak test vocabulary and inflate every metric downstream - the single
+most common silent bug in text pipelines.
+
+It is not persisted separately. The vectoriser is the first step of the tier-1 sklearn
+``Pipeline``, so the fitted vocabulary is serialised with the model and travels with it
+into the MLflow registry. That is deliberate: a vectoriser saved beside a model is a
+vectoriser that can be paired with the wrong one.
 
 Word and char n-grams are unioned rather than chosen between: word n-grams carry phrasing,
-char n-grams absorb the typos, elongation and emoji that this corpus is full of.
+char n-grams absorb the typos, elongation and emoji that this corpus is full of. The char
+analyser is also the dominant training cost - see the note in ``src/train/tier1.py``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import FeatureUnion
-
-ARTIFACT_NAME = "tfidf_vectorizer.joblib"
 
 
 def build_vectorizer(cfg: dict[str, Any]) -> FeatureUnion:
@@ -33,20 +36,3 @@ def build_vectorizer(cfg: dict[str, Any]) -> FeatureUnion:
             ("char", TfidfVectorizer(lowercase=True, **char_cfg)),
         ]
     )
-
-
-def save_vectorizer(vectorizer: FeatureUnion, directory: Path) -> Path:
-    """Persist the fitted vectoriser next to the model that depends on it."""
-    import joblib
-
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / ARTIFACT_NAME
-    joblib.dump(vectorizer, path)
-    return path
-
-
-def load_vectorizer(directory: Path) -> FeatureUnion:
-    """Load a previously fitted vectoriser."""
-    import joblib
-
-    return joblib.load(Path(directory) / ARTIFACT_NAME)

@@ -60,8 +60,10 @@ _BATCH_ROWS = 50_000
 def download_archive(url: str, dest: Path) -> Path:
     """Download ``url`` to ``dest`` unless it is already there.
 
-    Skipping an existing file is what makes the stage rerunnable without re-fetching
-    ~120MB every time DVC decides the stage is dirty.
+    Called by the ``download`` stage (:mod:`src.ingest.download`), which owns the archive
+    as its output. Note that DVC clears a stage's outputs before re-running it, so under
+    ``dvc repro`` the file is normally absent and this does re-fetch; the existence check
+    matters when the function is called directly, outside the pipeline.
     """
     dest = ensure_parent(dest)
     if dest.exists() and dest.stat().st_size > 0:
@@ -108,8 +110,9 @@ def parse_snap(archive: Path, encoding: str, errors: str) -> Iterator[dict[str, 
     """Stream records out of the gzipped SNAP block format.
 
     The archive is *not* clean UTF-8; it carries stray cp1252 bytes. We decode
-    permissively and count the damage instead of letting one bad byte abort a
-    ten-minute ingest - the count lands in the data-quality report.
+    permissively and count the damage instead of letting one bad byte abort the ingest.
+    The count is reported on stdout by this stage (1,789 on the current corpus); it is
+    deliberately not part of the data-quality report, which covers row-level validation.
     """
     record: dict[str, Any] = {}
     last_key: str | None = None

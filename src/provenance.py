@@ -1,8 +1,8 @@
 """Provenance helpers: git SHA, content hashes, and seeding.
 
 Every trained model must be traceable back to the exact code and the exact data that
-produced it. These three functions are what make that possible, and they are logged
-with every MLflow run.
+produced it. These helpers are what make that possible: a commit SHA, content hashes for
+data and text, and seeding. All of them are recorded on every MLflow run.
 """
 
 from __future__ import annotations

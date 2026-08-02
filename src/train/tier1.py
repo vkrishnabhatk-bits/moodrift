@@ -1,8 +1,13 @@
 """Tier 1: TF-IDF (word + char) into a multinomial logistic regression.
 
-The baseline every other tier has to beat. It trains on CPU in a couple of minutes, has
-no GPU dependency, and its coefficients are directly readable - which makes it both the
-honest comparison point and the fallback champion if the transformer never happens.
+The baseline every other tier has to beat: no GPU dependency, and coefficients that are
+directly readable. That makes it both the honest comparison point and a working fallback
+if the transformer is unavailable.
+
+It is not fast. Measured at roughly 13 minutes on an M1 Pro, dominated by the char n-gram
+vectoriser - `char_wb` over [3,4] emits two n-grams per character, so the feature matrix is
+large and every lbfgs iteration pays for it. An earlier [3,5] configuration had not
+converged after 21 minutes.
 
 The vectoriser and classifier are a single sklearn ``Pipeline``, so the fitted vocabulary
 travels with the model and serving cannot accidentally pair a model with the wrong

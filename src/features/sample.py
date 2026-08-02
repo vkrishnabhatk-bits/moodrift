@@ -1,6 +1,6 @@
-"""Sample stage: draw a proportional subset, filter to English, split, freeze a reference window.
+"""Sample stage: sample, deduplicate, filter to English, split, freeze a reference window.
 
-Three decisions worth stating explicitly, because each one is easy to get wrong:
+Four decisions worth stating explicitly, because each one is easy to get wrong:
 
 1. **The sample is proportional, not balanced.** The real 1-5 star imbalance is preserved
    so that macro-F1 is measured against the distribution the model will actually meet, and
@@ -8,9 +8,13 @@ Three decisions worth stating explicitly, because each one is easy to get wrong:
    via class weights (ADR-0001).
 2. **Splitting is stratified and seeded**, so every class is represented in val/test and
    the split is byte-identical on re-runs.
-3. **The reference window is frozen now**, in Week 1, from the test split. Week 3's drift
-   detectors compare against it. Deriving it later - after the model exists - would let
-   model behaviour contaminate the baseline it is measured against.
+3. **Identical normalised texts are removed before splitting.** Different reviewers write
+   byte-identical short reviews; letting one land in train and another in test scores the
+   model on memorised strings. This was ~13% of the test split before it was fixed
+   (ADR-0005), and an assertion below now guards it.
+4. **The reference window is frozen now**, from the test split, for the drift detectors
+   built later. Deriving it after the model exists would let model behaviour contaminate
+   the baseline it is measured against.
 
 Run with ``python -m src.features.sample``.
 """
@@ -133,6 +137,21 @@ def sample() -> dict[str, Any]:
     ref_size = min(int(sample_cfg["reference_window_size"]), len(test_df))
     reference_df = _proportional_sample(test_df, ref_size, seed)
 
+    # Check the invariants BEFORE writing anything. These assertions previously ran after
+    # the parquet files were written, which meant a failure left corrupt splits on disk for
+    # the next stage to pick up - the opposite of what a guard is for.
+    #
+    # No normalised text may appear in more than one split, or test scores are inflated.
+    overlap = set(train_df[TEXT_KEY]) & (set(val_df[TEXT_KEY]) | set(test_df[TEXT_KEY]))
+    assert not overlap, f"{len(overlap)} texts leak between train and val/test"
+
+    # Proportions must survive the split; a silent stratification bug is expensive later.
+    train_share = train_df[LABEL].value_counts(normalize=True).sort_index()
+    test_share = test_df[LABEL].value_counts(normalize=True).sort_index()
+    drift = (train_share - test_share).abs().max()
+    assert drift < 0.02, f"train/test class proportions diverge by {drift:.3f} - stratification failed"
+    print(f"[sample] max train/test class-proportion gap: {drift:.4f}")
+
     for name, frame in (
         ("train", train_df),
         ("val", val_df),
@@ -142,10 +161,6 @@ def sample() -> dict[str, Any]:
         dest = ensure_parent(resolve(paths[name]))
         frame.to_parquet(dest, index=False, compression="zstd")
         print(f"[sample] {name:<9} {len(frame):>7,} rows -> {paths[name]}")
-
-    # No normalised text may appear in more than one split, or test scores are inflated.
-    overlap = set(train_df[TEXT_KEY]) & (set(val_df[TEXT_KEY]) | set(test_df[TEXT_KEY]))
-    assert not overlap, f"{len(overlap)} texts leak between train and val/test"
 
     stats = {
         "validated_rows": len(df),
@@ -160,13 +175,6 @@ def sample() -> dict[str, Any]:
             for name, frame in (("train", train_df), ("val", val_df), ("test", test_df))
         },
     }
-
-    # Proportions must survive the split; a silent stratification bug is expensive later.
-    train_share = train_df[LABEL].value_counts(normalize=True).sort_index()
-    test_share = test_df[LABEL].value_counts(normalize=True).sort_index()
-    drift = (train_share - test_share).abs().max()
-    assert drift < 0.02, f"train/test class proportions diverge by {drift:.3f} - stratification failed"
-    print(f"[sample] max train/test class-proportion gap: {drift:.4f}")
     return stats
 
 
