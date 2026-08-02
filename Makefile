@@ -11,8 +11,8 @@ PIP := uv pip install --python .venv
 export PATH := $(CURDIR)/.venv/bin:$(PATH)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data ingest validate sample features train tier1 tier2 compare \
-        test lint format mlflow-ui freeze clean-artifacts
+.PHONY: help setup data ingest validate sample features train tier1 tier2 tier3 compare \
+        bench register reproduce test lint format mlflow-ui freeze clean-artifacts
 
 help:  ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,8 +49,21 @@ tier1:  ## Train tier 1 (TF-IDF + logistic regression)
 tier2:  ## Train tier 2 (MiniLM embeddings + LightGBM)
 	$(PY) -m src.train.tier2
 
+tier3:  ## Fine-tune tier 3 (DistilRoBERTa) - needs a GPU, ~52 min on an M1 Pro
+	$(PY) -m src.train.tier3
+
+bench:  ## Measure per-tier serving latency and artifact size, logged back to MLflow
+	$(PY) -m src.evaluate.benchmark
+
 compare:  ## Regenerate docs/model_comparison.md from logged MLflow runs
 	$(PY) -m src.evaluate.compare
+
+register:  ## Register the champion in the model registry, behind the promotion gates
+	$(PY) -m src.train.promote
+
+reproduce:  ## Re-run a logged experiment and assert the metric matches: make reproduce RUN_ID=<id>
+	@test -n "$(RUN_ID)" || { echo "usage: make reproduce RUN_ID=<mlflow run id>"; exit 2; }
+	$(PY) -m src.train.reproduce $(RUN_ID)
 
 mlflow-ui:  ## Browse experiments at http://127.0.0.1:5000
 	.venv/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
