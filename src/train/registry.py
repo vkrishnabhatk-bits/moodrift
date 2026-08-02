@@ -105,6 +105,11 @@ def log_model(model: Any, name: str, flavor: str = "sklearn", **kwargs: Any) -> 
     module = getattr(mlflow, flavor)
     if flavor == "sklearn":
         kwargs.setdefault("serialization_format", "cloudpickle")
+    if flavor == "transformers":
+        # MLflow infers requirements by importing what the flavor references, which pulls
+        # in torchvision - not installed here, and not needed for text classification.
+        # Declaring the requirements explicitly skips that inference entirely.
+        kwargs.setdefault("pip_requirements", ["torch", "transformers"])
     try:
         module.log_model(model, name=name, **kwargs)
     except TypeError:

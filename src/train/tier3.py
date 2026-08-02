@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from src.config import load_config
+from src.config import REPO_ROOT, load_config
 from src.evaluate.metrics import bootstrap_ci, compute_metrics
 from src.features.sample import LABEL, MODEL_INPUT, load_split
 from src.provenance import set_seeds
@@ -177,8 +177,23 @@ def train() -> dict[str, Any]:
                 f"macro_mae={metrics['macro_mae']:.4f} acc={metrics['accuracy']:.4f}"
             )
 
-        registry.log_model(model, MODEL_ARTIFACT, flavor="transformers", task="text-classification")
+        # Persist to disk BEFORE touching MLflow. Logging has now failed twice after the
+        # expensive work was already done - once on tier 2, once here - and on a 52-minute
+        # fine-tune that means losing the weights entirely because they only existed in
+        # this process. Saving first turns a logging bug into an inconvenience.
+        checkpoint = REPO_ROOT / "artifacts" / "tier3"
+        checkpoint.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(checkpoint)
+        tokenizer.save_pretrained(checkpoint)
+        print(f"[tier3] checkpoint saved -> {checkpoint}")
+
+        # mlflow.transformers wants a Pipeline, a dict of components, or a path to a
+        # checkpoint directory - never a bare model object. We have a directory now.
+        registry.log_model(
+            str(checkpoint), MODEL_ARTIFACT, flavor="transformers", task="text-classification"
+        )
         results["run_id"] = run.info.run_id
+        results["checkpoint"] = str(checkpoint)
 
     print(f"[tier3] logged run {results['run_id']}")
     return results
