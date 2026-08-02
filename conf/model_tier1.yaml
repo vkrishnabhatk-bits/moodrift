@@ -1,0 +1,30 @@
+# Tier 1 - TF-IDF (word + char n-grams) into a multinomial logistic regression.
+# The travel-proof baseline: trains on CPU in about a minute and is fully interpretable.
+
+name: tier1_tfidf_logreg
+seed: 42
+
+vectorizer:
+  # Word n-grams capture phrasing; char n-grams absorb typos, elongation and emoji
+  # that word tokenisation would otherwise drop. The two are combined via FeatureUnion.
+  word:
+    ngram_range: [1, 2]
+    min_df: 3
+    max_df: 0.9
+    max_features: 200000
+    sublinear_tf: true
+    strip_accents: unicode
+  char:
+    analyzer: char_wb
+    ngram_range: [3, 5]
+    min_df: 3
+    max_features: 200000
+    sublinear_tf: true
+
+classifier:
+  C: 4.0
+  max_iter: 1000
+  # Imbalance is handled here, not by resampling the dataset (see ADR-0001).
+  class_weight: balanced
+  solver: lbfgs
+  n_jobs: -1
