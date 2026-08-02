@@ -13,8 +13,8 @@ stages:
       size: 1128
     - path: src/ingest/loader.py
       hash: md5
-      md5: 99d5dc504b953c2af37fe62f56c39592
-      size: 8457
+      md5: 3a9529bcbc38fe85723e2b054c5332e8
+      size: 8463
     params:
       conf/data.yaml:
         paths:
@@ -195,12 +195,12 @@ stages:
       size: 1128
     - path: src/ingest/download.py
       hash: md5
-      md5: d269f30faf63f09902c7a29779e2af13
-      size: 2155
+      md5: 3624d1e40fe406212ef7f4b4874e3ebb
+      size: 2699
     - path: src/ingest/loader.py
       hash: md5
-      md5: 99d5dc504b953c2af37fe62f56c39592
-      size: 8457
+      md5: 3a9529bcbc38fe85723e2b054c5332e8
+      size: 8463
     params:
       conf/data.yaml:
         source:
