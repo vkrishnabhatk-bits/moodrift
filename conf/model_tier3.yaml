@@ -1,7 +1,8 @@
 # Tier 3 - fine-tuned DistilRoBERTa. The only tier that needs a GPU.
 #
-# Sized for a free Colab/Kaggle T4 session: roughly 20-40 minutes at these settings.
-# Run it at the end of Week 1, before the travel week, per the compute plan.
+# Measured: 52 minutes on an Apple M1 Pro (14-core GPU) via PyTorch's MPS backend, at
+# these settings on the full 42k training split. A free Colab/Kaggle T4 is roughly 2x
+# faster. The script auto-selects CUDA, then MPS, then CPU - CPU is impractically slow.
 
 name: tier3_distilroberta
 seed: 42

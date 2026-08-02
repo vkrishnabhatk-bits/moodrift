@@ -6,11 +6,10 @@ Two things worth knowing before reading further.
 is only available on a database-backed store; ``mlruns/`` alone cannot register a model.
 The database holds metadata, ``mlruns/`` holds artifacts.
 
-**Promotion uses aliases, not stages.** PROJECT_PLAN.md specifies
-``models:/moodrift-classifier/Production``. MLflow 3.x deprecated stage transitions in
-favour of *aliases*, so the equivalent modern reference is
-``models:/moodrift-classifier@production``. The gating logic is unchanged - only the
-mechanism differs. Recorded in ADR-0004.
+**Promotion uses aliases, not stages.** MLflow 3.x deprecated stage transitions in favour
+of *aliases* - movable named pointers to a version - so a model is referenced as
+``models:/moodrift-classifier@production`` rather than by a ``Production`` stage. The
+gating logic is unchanged; only the mechanism differs. Recorded in ADR-0004.
 
 Alias meanings:
 

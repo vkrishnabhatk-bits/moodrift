@@ -6,8 +6,9 @@ Accepted — 2026-08-02 (Week 1)
 
 ## Context
 
-PROJECT_PLAN.md §3 specifies a gated promotion path through the MLflow Model Registry
-using **stages**, with serving pinned to `models:/moodrift-classifier/Production`:
+PROJECT_PLAN.md §3 originally specified a gated promotion path through the MLflow Model
+Registry using **stages**, with serving pinned to `models:/moodrift-classifier/Production`
+(the plan has since been updated to match this decision):
 
 - `None → Staging` on passing the M3 evaluation thresholds
 - `Staging → Production` on passing the Week 3 smoke and load tests
@@ -58,7 +59,7 @@ requirement and the file store does not support it.
   deleted, so the previous champion stays queryable — the same guarantee "Archived" gave.
 - Aliases carry no implicit ordering, so the *gates* must be enforced in code rather than
   inherited from stage semantics. They are, in `src/train/registry.py`.
-- PROJECT_PLAN.md §3 and the Week 3 serving section still say `/Production`; they should be
-  read as `@production`. Worth correcting in the plan when the team next reviews it.
+- PROJECT_PLAN.md has since been corrected: §3, the Week 2 registration step, the Week 3
+  serving step and the rubric table all now describe aliases rather than stages.
 - Anyone reproducing this on MLflow 2.x will find aliases available there too (2.9+), so
   the code is not tied to 3.x.
