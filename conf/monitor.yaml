@@ -1,0 +1,127 @@
+# Monitoring and retraining-trigger configuration.
+#
+# Drafted in Week 2, implemented in Week 3. Every threshold here is an argument, and the
+# argument is written down in docs/drift_design.md rather than left as a number someone
+# once typed. Two rules held throughout:
+#
+#   1. A detector that fires on normal variation is worse than no detector - people learn
+#      to ignore it. Thresholds are set to be quiet on the reference window itself, then
+#      tuned against the simulated scenarios, not against intuition.
+#   2. Nothing here trains anything. The trigger emits a decision; the retraining job acts
+#      on it. Keeping the two separate is what makes the decision auditable.
+
+reference:
+  # Frozen in Week 1 from the test split, before any model existed - so model behaviour
+  # cannot have contaminated the baseline it is measured against.
+  path: data/reference/reference.parquet
+  rows: 5000
+
+windows:
+  # One monitoring window = this many predictions. 500 is a compromise: large enough for
+  # a KS test to have power and for a macro-F1 estimate on a 5-class problem to mean
+  # something, small enough that a demo can fill three windows in a couple of minutes.
+  size: 500
+  # A window with fewer than this many predictions is not evaluated at all, rather than
+  # evaluated badly.
+  min_size: 200
+
+input_drift:
+  # Scalar features PSI and KS run on. Deliberately cheap and interpretable: if the
+  # detector fires, you can look at a histogram and see why.
+  features:
+    - char_count
+    - token_count
+    - oov_rate          # share of tokens absent from the tier-1 training vocabulary
+    - mean_word_length
+  psi:
+    bins: 10            # quantile bins from the reference window
+    warn: 0.10          # the conventional "slight shift" line
+    alert: 0.20         # the conventional "significant shift" line; drives WATCH
+  ks:
+    alpha: 0.05
+    # With n=500 per window a KS test finds tiny, meaningless differences significant, so
+    # significance alone never triggers anything: it must be accompanied by a PSI breach.
+    require_psi_agreement: true
+
+concept_drift:
+  # A deliberately WEAK classifier separating reference from current embeddings. If even
+  # this can tell the two windows apart, the distributions genuinely moved. A strong model
+  # would "succeed" on noise and cry wolf every window.
+  domain_classifier:
+    features: feature_store      # the same MiniLM vectors training used - no second pipeline
+    model: logistic_regression
+    C: 0.1                       # heavy regularisation: the weakness is the point
+    max_iter: 200
+    cv_folds: 3
+    seed: 42
+  auc_warn: 0.60
+  auc_alert: 0.65                # drives WATCH
+
+performance_drift:
+  # Ground truth lags by design - a star rating arrives when a labelled slice is reviewed,
+  # not at prediction time. These thresholds are therefore evaluated on whatever labelled
+  # slice exists, and never block the statistical detectors above.
+  metrics: [macro_f1, macro_mae]
+  # The champion's measured test macro-F1 (0.6001) is the baseline. Recorded explicitly
+  # rather than read from MLflow at runtime so a monitoring run cannot silently rebaseline
+  # itself against a worse model.
+  baseline_macro_f1: 0.6001
+  baseline_macro_mae: 0.4226
+  min_labelled_samples: 500
+  # 5 points below baseline lands at 0.55 - which is also the project's minimum acceptable
+  # macro-F1. The trigger fires exactly when the model stops meeting the bar it shipped at.
+  macro_f1_drop: 0.05
+  macro_mae_rise: 0.10
+
+trigger:
+  # Four tiers, because "retrain" is not one decision. Statistical drift is a reason to
+  # look; degraded quality is a reason to queue; a cooldown and a data check are what stop
+  # a flapping detector from retraining nightly.
+  watch:
+    sustained_windows: 3         # PSI/AUC breach must hold this long - one window is noise
+    action: log_and_alert
+  candidate:
+    requires: performance_drift
+    action: queue_and_open_issue
+  fire:
+    requires: candidate
+    cooldown_days: 7             # no second retrain inside a week, whatever the detectors say
+    require_data_validation: true  # the new window must pass the Pandera schema first
+    action: trigger_training
+  promote:
+    min_macro_f1_gain: 0.01      # challenger must beat champion by >= 1 point
+    allow_slice_regression: false  # and must not regress on any per-class slice
+    action: move_production_alias
+    # A failed promotion is recorded, not discarded: "we retrained and it was worse" is
+    # information, and losing it means retraining again for the same reason next month.
+    record_failed_attempts: true
+
+simulation:
+  # Ramped, not step functions: a step change is trivially detectable and proves nothing
+  # about whether these thresholds work on a realistic drift.
+  windows: 8
+  scenarios:
+    - name: vocabulary_shift
+      inject: modern_slang_and_emoji
+      ramp: [0.0, 0.4]           # share of injected rows, linear across windows
+      expect: [psi, ks, domain_classifier]
+    - name: topic_shift
+      inject: other_product_category
+      ramp: [0.0, 0.5]
+      expect: [domain_classifier]
+    - name: length_shift
+      inject: long_reviews_only
+      ramp: [0.0, 0.6]
+      expect: [psi, ks, latency]
+    - name: label_noise_sarcasm
+      inject: contradictory_sentiment
+      ramp: [0.0, 0.3]
+      # The interesting one: the statistical detectors are expected to stay QUIET here,
+      # and only rolling macro-F1/MAE catches it. A monitoring stack that cannot show this
+      # gap does not understand its own detectors.
+      expect: [performance_drift]
+
+report:
+  evidently_html: docs/drift_report.html
+  markdown: docs/drift_report.md
+  predictions: data/predictions/predictions.jsonl
