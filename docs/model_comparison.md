@@ -24,18 +24,48 @@ The minority classes (2 and 3 stars) are where these models actually differ; the
 | 2 | 0.598 | 0.156 | 0.282 | 0.268 | 0.841 |
 | 3 | 0.735 | 0.449 | 0.498 | 0.463 | 0.856 |
 
+## Serving cost
+
+Measured by `make bench` on 200 real test-split reviews per tier, batch=1,
+one CPU thread, on arm64 Darwin. End to end: vectorising, encoding and tokenising are
+inside the timing, because that is what a request actually pays for.
+
+| Tier | Model | p50 ms | p95 ms | p99 ms | Artifact MB |
+|---|---|---|---|---|---|
+| 1 | TF-IDF (word + char n-grams) -> logistic regression | 1.1 | 1.9 | 2.5 | 14.6 |
+| 2 | frozen MiniLM embeddings -> LightGBM | 11.1 | 25.7 | 26.7 | 10.2 |
+| 3 | fine-tuned DistilRoBERTa | 20.0 | 43.7 | 44.0 | 320.1 |
+
+**Feature store, measured.** Tier 2's p95 falls from 25.7 ms to **1.3 ms**
+(20x) when the embedding comes from `features.db` instead of a live
+MiniLM forward pass. That gap is the argument for the offline/online store, and it
+is measured rather than asserted.
+
 ## Champion
 
 **Tier 3** (`tier3_distilroberta`), macro-F1 **0.6001**, macro-MAE **0.4226**.
 
 - Run ID: `cdfd6b64221e4244a0e9d0cbca21f76b`
 - Git SHA: `542ed283bc3d28e34bdeb69a38c27ca46714dee2`
+- Registry: `moodrift-classifier` v1 @champion (`make register`)
+
+### Gates
+
+| Gate | Value | Result |
+|---|---|---|
+| Macro-F1 >= 0.55 | 0.6001 | PASS |
+| Macro-MAE <= 0.55 | 0.4226 | PASS |
+| Beats the tier-1 baseline by >= 0.02 macro-F1 | +0.0864 | PASS |
+| p95 latency < 130 ms (batch=1, 1 thread) | 43.7 ms | PASS |
+
+### Why this one
+
+- **Accuracy:** +8.6 macro-F1 points over the tier-1 baseline. The two confidence intervals do not overlap, so the margin is a real difference, not run-to-run noise.
+- **Latency:** 43.7 ms p95 against the baseline's 1.9 ms - 24x slower, and still inside the serving budget.
+- **Size:** 320 MB against the baseline's 15 MB - 22x larger. This is the real cost of the pick, and it lands on the serving image rather than on the latency budget.
 
 > Selection is by macro-F1 on the test split. Where two tiers overlap within their
 > confidence intervals, prefer the cheaper one - and say so explicitly in the report
 > rather than presenting the more expensive model as a clear winner.
 
-## Still to come (Week 2)
-
-Inference latency and artifact size per tier, which complete the
-accuracy/latency/size triple used to justify the final champion pick.
+Reproduce it: `make reproduce RUN_ID=cdfd6b64221e4244a0e9d0cbca21f76b`.

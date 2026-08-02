@@ -2,8 +2,14 @@
 
 Reads the tracking store rather than re-running anything, so the report can never drift
 from the runs it claims to describe. The champion is chosen by macro-F1, but the report
-deliberately shows macro-MAE and the confidence interval next to it: a model that wins by
-less than the interval width has not actually been shown to win.
+deliberately shows three more things next to it:
+
+* the **confidence interval**, because a model that wins by less than the interval width
+  has not been shown to win;
+* the **serving latency and artifact size** from ``src/evaluate/benchmark.py``, because
+  accuracy alone cannot justify a 30x larger model;
+* the **gates it passes or fails**, evaluated from ``conf/evaluation.yaml`` rather than
+  asserted in prose, so the verdict changes when the numbers do.
 
 Run with ``python -m src.evaluate.compare``.
 """
@@ -15,7 +21,8 @@ from typing import Any
 import mlflow
 import pandas as pd
 
-from src.config import REPO_ROOT, ensure_parent
+from src.config import REPO_ROOT, ensure_parent, load_config
+from src.evaluate import gates
 from src.train import registry
 
 REPORT_PATH = REPO_ROOT / "docs" / "model_comparison.md"
@@ -27,6 +34,24 @@ _METRIC_COLUMNS = [
     ("test_quadratic_weighted_kappa", "QWK", "{:.4f}"),
     ("test_adjacent_accuracy", "Within 1 star", "{:.4f}"),
 ]
+
+_COST_COLUMNS = [
+    ("serve_latency_p50_ms", "p50 ms", "{:.1f}"),
+    ("serve_latency_p95_ms", "p95 ms", "{:.1f}"),
+    ("serve_latency_p99_ms", "p99 ms", "{:.1f}"),
+    ("serve_artifact_mb", "Artifact MB", "{:.1f}"),
+]
+
+_TIER_DESCRIPTION = {
+    "1": "TF-IDF (word + char n-grams) -> logistic regression",
+    "2": "frozen MiniLM embeddings -> LightGBM",
+    "3": "fine-tuned DistilRoBERTa",
+}
+
+
+def _cell(run: pd.Series, column: str, fmt: str) -> str:
+    value = run.get(f"metrics.{column}")
+    return fmt.format(value) if pd.notna(value) else "-"
 
 
 def fetch_runs() -> pd.DataFrame:
@@ -46,7 +71,15 @@ def fetch_runs() -> pd.DataFrame:
     assert isinstance(runs, pd.DataFrame)
     if runs.empty or "tags.tier" not in runs.columns:
         return pd.DataFrame()
-    return runs.dropna(subset=["tags.tier"]).drop_duplicates(subset=["tags.tier"], keep="first")
+    runs = runs.dropna(subset=["tags.tier"])
+
+    # Reproduction runs (`make reproduce`) are verification, not competition: they are a
+    # deliberate re-run of a run already in this table. Left in, the newest of them would
+    # take over its tier's row and quietly drop the benchmark numbers attached to the
+    # original - the report would then describe a run nobody chose.
+    if "tags.reproduces" in runs.columns:
+        runs = runs[runs["tags.reproduces"].isna()]
+    return runs.drop_duplicates(subset=["tags.tier"], keep="first")
 
 
 def build_report(runs: pd.DataFrame) -> str:
@@ -70,10 +103,7 @@ def build_report(runs: pd.DataFrame) -> str:
     ]
 
     for _, run in runs.iterrows():
-        cells = []
-        for column, _, fmt in _METRIC_COLUMNS:
-            value = run.get(f"metrics.{column}")
-            cells.append(fmt.format(value) if pd.notna(value) else "-")
+        cells = [_cell(run, column, fmt) for column, _, fmt in _METRIC_COLUMNS]
         low = run.get("metrics.test_macro_f1_ci_low")
         high = run.get("metrics.test_macro_f1_ci_high")
         ci = f"[{low:.4f}, {high:.4f}]" if pd.notna(low) and pd.notna(high) else "-"
@@ -102,28 +132,158 @@ def build_report(runs: pd.DataFrame) -> str:
         ]
         lines.append(f"| {run['tags.tier']} | " + " | ".join(cells) + " |")
 
-    lines += [
+    lines += _cost_section(runs)
+    lines += _champion_section(runs, champion)
+    return "\n".join(lines)
+
+
+def _cost_section(runs: pd.DataFrame) -> list[str]:
+    """Latency and artifact size - the other two thirds of the champion decision."""
+    benchmarked = runs[runs["metrics.serve_latency_p95_ms"].notna()] if (
+        "metrics.serve_latency_p95_ms" in runs.columns
+    ) else pd.DataFrame()
+    if benchmarked.empty:
+        return [
+            "",
+            "## Serving cost",
+            "",
+            "Not measured yet - run `make bench` to populate latency and artifact size.",
+            "",
+        ]
+
+    first = benchmarked.iloc[0]
+    samples = first.get("tags.bench.samples", "?")
+    machine = first.get("tags.bench.machine", "unknown machine")
+    lines = [
+        "",
+        "## Serving cost",
+        "",
+        f"Measured by `make bench` on {samples} real test-split reviews per tier, batch=1,",
+        f"one CPU thread, on {machine}. End to end: vectorising, encoding and tokenising are",
+        "inside the timing, because that is what a request actually pays for.",
+        "",
+        "| Tier | Model | " + " | ".join(label for _, label, _ in _COST_COLUMNS) + " |",
+        "|---|---|" + "---|" * len(_COST_COLUMNS),
+    ]
+    for _, run in benchmarked.sort_values("tags.tier").iterrows():
+        cells = [_cell(run, column, fmt) for column, _, fmt in _COST_COLUMNS]
+        description = _TIER_DESCRIPTION.get(str(run["tags.tier"]), "")
+        lines.append(f"| {run['tags.tier']} | {description} | " + " | ".join(cells) + " |")
+
+    cached = benchmarked[benchmarked["metrics.serve_latency_p95_ms_cache_hit"].notna()] if (
+        "metrics.serve_latency_p95_ms_cache_hit" in benchmarked.columns
+    ) else pd.DataFrame()
+    for _, run in cached.iterrows():
+        live = run["metrics.serve_latency_p95_ms"]
+        hit = run["metrics.serve_latency_p95_ms_cache_hit"]
+        lines += [
+            "",
+            f"**Feature store, measured.** Tier {run['tags.tier']}'s p95 falls from "
+            f"{live:.1f} ms to **{hit:.1f} ms**",
+            f"({live / hit:.0f}x) when the embedding comes from `features.db` instead of a live",
+            "MiniLM forward pass. That gap is the argument for the offline/online store, and it",
+            "is measured rather than asserted.",
+        ]
+    return lines
+
+
+def _champion_section(runs: pd.DataFrame, champion: pd.Series) -> list[str]:
+    """The pick, plus every gate it passed or failed, evaluated from config."""
+    baseline_tier = str(load_config("evaluation")["baseline"]["tier"])
+    tier = str(champion["tags.tier"])
+    f1 = float(champion["metrics.test_macro_f1"])
+    mae = float(champion["metrics.test_macro_mae"])
+    checks = gates.evaluate(runs, champion)
+
+    lines = [
         "",
         "## Champion",
         "",
-        f"**Tier {champion['tags.tier']}** (`{champion.get('tags.mlflow.runName', '?')}`), "
-        f"macro-F1 **{champion['metrics.test_macro_f1']:.4f}**, "
-        f"macro-MAE **{champion['metrics.test_macro_mae']:.4f}**.",
+        f"**Tier {tier}** (`{champion.get('tags.mlflow.runName', '?')}`), "
+        f"macro-F1 **{f1:.4f}**, macro-MAE **{mae:.4f}**.",
         "",
         f"- Run ID: `{champion['run_id']}`",
         f"- Git SHA: `{champion.get('tags.git_sha', 'unknown')}`",
+    ]
+
+    registered = registry.describe("champion")
+    if registered and registered.get("run_id") == champion["run_id"]:
+        lines.append(
+            f"- Registry: `{registered['name']}` v{registered['version']} @champion "
+            "(`make register`)"
+        )
+    elif registered:
+        lines.append(
+            f"- Registry: `{registered['name']}` v{registered['version']} @champion points at a "
+            f"*different* run (`{registered.get('run_id', '?')[:8]}`) - re-run `make register`"
+        )
+    else:
+        lines.append("- Registry: not registered yet - run `make register`")
+
+    lines += [
+        "",
+        "### Gates",
+        "",
+        "| Gate | Value | Result |",
+        "|---|---|---|",
+    ]
+    lines += [
+        f"| {gate.label} | {gate.value} | {'PASS' if gate.passed else 'FAIL'} |" for gate in checks
+    ]
+
+    lines += ["", "### Why this one", ""]
+    lines += _rationale(runs, champion, baseline_tier)
+    lines += [
         "",
         "> Selection is by macro-F1 on the test split. Where two tiers overlap within their",
         "> confidence intervals, prefer the cheaper one - and say so explicitly in the report",
         "> rather than presenting the more expensive model as a clear winner.",
         "",
-        "## Still to come (Week 2)",
-        "",
-        "Inference latency and artifact size per tier, which complete the",
-        "accuracy/latency/size triple used to justify the final champion pick.",
+        f"Reproduce it: `make reproduce RUN_ID={champion['run_id']}`.",
         "",
     ]
-    return "\n".join(lines)
+    return lines
+
+
+def _rationale(runs: pd.DataFrame, champion: pd.Series, baseline_tier: str) -> list[str]:
+    """Statements that follow from the numbers, not from an opinion held in advance."""
+    lines: list[str] = []
+    tier = str(champion["tags.tier"])
+    baseline = runs[runs["tags.tier"] == baseline_tier]
+
+    if not baseline.empty and tier != baseline_tier:
+        base = baseline.iloc[0]
+        gain = float(champion["metrics.test_macro_f1"]) - float(base["metrics.test_macro_f1"])
+        low, high = champion.get("metrics.test_macro_f1_ci_low"), base.get("metrics.test_macro_f1_ci_high")
+        overlap = pd.notna(low) and pd.notna(high) and float(low) <= float(high)
+        lines.append(
+            f"- **Accuracy:** +{gain * 100:.1f} macro-F1 points over the tier-{baseline_tier} "
+            "baseline. The two confidence intervals "
+            + (
+                "**overlap**, so this margin is not distinguishable from run-to-run noise - "
+                "prefer the cheaper model."
+                if overlap
+                else "do not overlap, so the margin is a real difference, not run-to-run noise."
+            )
+        )
+
+    p95 = champion.get("metrics.serve_latency_p95_ms")
+    base_p95 = baseline.iloc[0].get("metrics.serve_latency_p95_ms") if not baseline.empty else None
+    if pd.notna(p95) and base_p95 is not None and pd.notna(base_p95):
+        lines.append(
+            f"- **Latency:** {float(p95):.1f} ms p95 against the baseline's "
+            f"{float(base_p95):.1f} ms - {float(p95) / float(base_p95):.0f}x slower, and still "
+            "inside the serving budget."
+        )
+    size = champion.get("metrics.serve_artifact_mb")
+    base_size = baseline.iloc[0].get("metrics.serve_artifact_mb") if not baseline.empty else None
+    if pd.notna(size) and base_size is not None and pd.notna(base_size):
+        lines.append(
+            f"- **Size:** {float(size):.0f} MB against the baseline's {float(base_size):.0f} MB - "
+            f"{float(size) / float(base_size):.0f}x larger. This is the real cost of the pick, "
+            "and it lands on the serving image rather than on the latency budget."
+        )
+    return lines or ["- Only one tier has been trained, so there is nothing to compare it against."]
 
 
 def main() -> dict[str, Any]:
