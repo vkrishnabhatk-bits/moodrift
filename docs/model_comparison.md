@@ -11,6 +11,7 @@ plain accuracy rewards a model that simply predicts 5 every time.
 |---|---|---|---|---|---|---|---|
 | 1 | `tier1_tfidf_logreg` | 0.5137 | 0.6277 | 0.6892 | 0.7784 | 0.9250 | [0.4999, 0.5271] |
 | 2 | `tier2_minilm_lightgbm` | 0.4292 | 0.9995 | 0.6904 | 0.6640 | 0.8838 | [0.4152, 0.4413] |
+| 3 | `tier3_distilroberta` | 0.6001 | 0.4226 | 0.7228 | 0.8659 | 0.9666 | [0.5862, 0.6132] |
 
 ## Per-class F1
 
@@ -21,13 +22,14 @@ The minority classes (2 and 3 stars) are where these models actually differ; the
 |---|---|---|---|---|---|
 | 1 | 0.659 | 0.288 | 0.386 | 0.389 | 0.846 |
 | 2 | 0.598 | 0.156 | 0.282 | 0.268 | 0.841 |
+| 3 | 0.735 | 0.449 | 0.498 | 0.463 | 0.856 |
 
 ## Champion
 
-**Tier 1** (`tier1_tfidf_logreg`), macro-F1 **0.5137**, macro-MAE **0.6277**.
+**Tier 3** (`tier3_distilroberta`), macro-F1 **0.6001**, macro-MAE **0.4226**.
 
-- Run ID: `847d5707134c4119bc39018e354335c4`
-- Git SHA: `09f73b6a4fc44843528695dc78748cb40b16e1ff-dirty`
+- Run ID: `cdfd6b64221e4244a0e9d0cbca21f76b`
+- Git SHA: `542ed283bc3d28e34bdeb69a38c27ca46714dee2`
 
 > Selection is by macro-F1 on the test split. Where two tiers overlap within their
 > confidence intervals, prefer the cheaper one - and say so explicitly in the report
