@@ -166,3 +166,28 @@ stages:
       hash: md5
       md5: 16f1a7a1deca03d90e266a819239bab0
       size: 141787136
+  download:
+    cmd: python -m src.ingest.download
+    deps:
+    - path: src/ingest/download.py
+      hash: md5
+      md5: d269f30faf63f09902c7a29779e2af13
+      size: 2155
+    - path: src/ingest/loader.py
+      hash: md5
+      md5: 898e102c9938e8001973fb489902da5e
+      size: 8137
+    params:
+      conf/data.yaml:
+        source:
+          name: amazon-fine-food-reviews
+          url: https://snap.stanford.edu/data/finefoods.txt.gz
+          archive: data/raw/finefoods.txt.gz
+          csv_override: data/raw/Reviews.csv
+          encoding: utf-8
+          encoding_errors: replace
+    outs:
+    - path: data/raw/finefoods.txt.gz
+      hash: md5
+      md5: 160834e09427a29b801107062607ddab
+      size: 122104202
