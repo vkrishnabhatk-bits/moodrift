@@ -7,8 +7,10 @@ import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
 from transformers import AutoTokenizer
 
-from src.config import resolve
+from src.config import load_config, resolve
+from src.features import embed
 from src.features.clean import normalise
+from src.features.store import FeatureStore
 from src.provenance import text_key
 from src.serve.schemas import (
     BatchPredictRequest,
@@ -32,6 +34,8 @@ app = FastAPI(
 tokenizer = None
 ort_session = None
 model_info: dict | None = None
+feature_store: FeatureStore | None = None
+tier2_cfg: dict | None = None
 
 MODEL_DIR = resolve("data/artifacts/model")
 ONNX_PATH = resolve("data/artifacts/model.onnx")
@@ -53,7 +57,7 @@ def load_model_and_tokenizer():
     If that hasn't happened, the correct behaviour is to stay unloaded (503 on /predict),
     not to quietly serve a different model with a different label space.
     """
-    global tokenizer, ort_session, model_info
+    global tokenizer, ort_session, model_info, feature_store, tier2_cfg
 
     config_path = MODEL_DIR / "config.json"
     if not config_path.exists() or not ONNX_PATH.exists():
@@ -74,6 +78,16 @@ def load_model_and_tokenizer():
     opts.intra_op_num_threads = 1
     ort_session = ort.InferenceSession(str(ONNX_PATH), sess_options=opts)
 
+    # The feature store's tier-2 embedding, not the champion's own weights - the champion
+    # doesn't consume it on its inference path (it has its own tokeniser/forward pass), so
+    # this read-through is for cache growth / monitoring features, not a serving speed-up.
+    # See §"The feature store's speed-up..." in the Week 2 write-up.
+    tier2_cfg = load_config("model_tier2")
+    emb_cfg = tier2_cfg["embedding"]
+    feature_store = FeatureStore(model=emb_cfg["model"], dimension=int(emb_cfg["dimension"]))
+    embed.get_encoder(emb_cfg["model"], int(emb_cfg["max_seq_length"]))  # warm, off the request path
+    print(f"[serve] feature store ready: {feature_store.stats()['rows']} rows at {feature_store.path}")
+
 
 def _model_ref() -> ModelRef:
     """Provenance block for every response - built from export_onnx.py's manifest."""
@@ -87,6 +101,21 @@ def _model_ref() -> ModelRef:
     )
 
 
+def _feature_source(key: str, normalised: str) -> str:
+    """Feature-store read-through: hit reuses the cached embedding, miss computes and
+    writes back with source='online' - so a repeated identical request hits next time.
+
+    The embedding itself isn't used by the champion's own forward pass (see the startup
+    comment above); this exists to keep the store growing and accurate for monitoring,
+    and to report `feature_source` honestly instead of the placeholder "live" task 2 left.
+    """
+    if feature_store.get(key) is not None:
+        return "store"
+    vectors = embed.encode([normalised], tier2_cfg)
+    feature_store.write_many([key], vectors, source="online")
+    return "live"
+
+
 def _predict_one(text: str) -> Prediction:
     """Normalise -> tokenise -> ONNX forward pass -> one schema-shaped Prediction.
 
@@ -94,9 +123,12 @@ def _predict_one(text: str) -> Prediction:
     (rather than tokenising the raw payload, as PR #1 originally did) matters for two
     reasons: it's the train/serve skew guard - the champion was trained on normalised
     text - and it's what makes `text_hash` here match the feature store's key for the
-    same string, which task 3's read-through depends on.
+    same string, which the read-through below depends on.
     """
     normalised = normalise(text)
+    key = text_key(normalised)
+    feature_source = _feature_source(key, normalised)
+
     tokens = tokenizer(
         normalised,
         padding="max_length",
@@ -119,10 +151,8 @@ def _predict_one(text: str) -> Prediction:
         # flags stay at their all-False defaults here: truncated/low_signal/out_of_domain
         # detection is task B in moodrift-implementation.html's Week 3 task board.
         flags=Flags(),
-        # Always "live" until task 3 wires up the feature-store read-through - there's no
-        # store lookup on this path yet, so nothing is ever actually a cache hit.
-        feature_source="live",
-        text_hash=text_key(normalised),
+        feature_source=feature_source,
+        text_hash=key,
     )
 
 

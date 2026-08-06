@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi.testclient import TestClient
 
 from src.serve.app import app
@@ -27,9 +29,23 @@ def test_predict_endpoint_success():
         assert 1 <= prediction["stars"] <= 5
         assert set(prediction["probabilities"].keys()) == {"1", "2", "3", "4", "5"}
         assert abs(sum(prediction["probabilities"].values()) - 1.0) < 1e-3
-        assert prediction["feature_source"] == "live"
+        # "live" on a cold store, "store" once a prior run has cached this exact text -
+        # the feature store persists across test runs, so either is a legitimate result.
+        assert prediction["feature_source"] in ("live", "store")
         assert prediction["text_hash"]
         assert data["model"]["name"] == "moodrift-classifier"
+
+
+def test_predict_endpoint_feature_store_read_through():
+    """A never-before-seen text misses (live) once, then hits (store) on a repeat."""
+    unique_text = f"Cache read-through probe {uuid.uuid4()}"
+    with TestClient(app) as client:
+        first = client.post("/predict", json={"text": unique_text}).json()
+        second = client.post("/predict", json={"text": unique_text}).json()
+
+    assert first["prediction"]["feature_source"] == "live"
+    assert second["prediction"]["feature_source"] == "store"
+    assert first["prediction"]["text_hash"] == second["prediction"]["text_hash"]
 
 
 def test_predict_endpoint_echoes_request_id():
