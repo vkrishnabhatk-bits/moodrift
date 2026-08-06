@@ -12,6 +12,7 @@ Run with ``python -m src.serve.export_onnx``.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import mlflow
 import torch
@@ -131,6 +132,8 @@ def quantize_model() -> None:
     in Week 2, the champion has ~3x latency headroom even at fp32), so the simpler,
     calibration-free approach is the right amount of engineering for the actual goal.
     """
+    import tempfile
+
     from onnxruntime.quantization import QuantType, quantize_dynamic
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
@@ -139,20 +142,25 @@ def quantize_model() -> None:
 
     # Recommended before quantize_dynamic regardless of exporter: folds constants and
     # infers shapes ahead of time, rather than quantize_dynamic doing it implicitly.
-    preprocessed_path = resolve("data/artifacts/model.preprocessed.onnx")
-    print(f"[quantize] preprocessing (shape inference + optimisation) -> {preprocessed_path}")
-    quant_pre_process(
-        input_model=str(ONNX_OUTPUT_PATH),
-        output_model_path=str(preprocessed_path),
-        save_as_external_data=True,
-    )
+    # Written to a throwaway temp dir, not data/artifacts/: at 313 MB the fp32 model is
+    # well under ONNX's 2 GB single-file protobuf limit, so it doesn't need external
+    # data - `save_as_external_data=True` was tried here first and, without also setting
+    # `all_tensors_to_one_file`, wrote roughly 150 separate per-tensor files straight into
+    # data/artifacts/ instead of the one file this comment used to say to expect. A
+    # disposable intermediate has no business in the directory the serving container
+    # mounts, regardless of how many files it is.
+    with tempfile.TemporaryDirectory() as tmp:
+        preprocessed_path = Path(tmp) / "model.preprocessed.onnx"
+        print(f"[quantize] preprocessing (shape inference + optimisation) -> {preprocessed_path}")
+        quant_pre_process(input_model=str(ONNX_OUTPUT_PATH), output_model_path=str(preprocessed_path))
 
-    print(f"[quantize] INT8 dynamic quantisation -> {INT8_OUTPUT_PATH}")
-    quantize_dynamic(
-        model_input=str(preprocessed_path),
-        model_output=str(INT8_OUTPUT_PATH),
-        weight_type=QuantType.QUInt8,
-    )
+        print(f"[quantize] INT8 dynamic quantisation -> {INT8_OUTPUT_PATH}")
+        quantize_dynamic(
+            model_input=str(preprocessed_path),
+            model_output=str(INT8_OUTPUT_PATH),
+            weight_type=QuantType.QUInt8,
+        )
+
     fp32_mb, int8_mb = _onnx_size_mb(ONNX_OUTPUT_PATH), _onnx_size_mb(INT8_OUTPUT_PATH)
     print(f"[quantize] size: {fp32_mb:.1f} MB -> {int8_mb:.1f} MB ({(1 - int8_mb / fp32_mb) * 100:.0f}% smaller)")
 
