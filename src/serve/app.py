@@ -1,10 +1,13 @@
+import json
 import time
-import os
+
 import numpy as np
 import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
+
+from src.config import resolve
 
 app = FastAPI(
     title="MooDrift REST API",
@@ -14,10 +17,11 @@ app = FastAPI(
 
 tokenizer = None
 ort_session = None
+model_info: dict | None = None
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODEL_DIR = os.path.join(BASE_DIR, "data", "artifacts", "model")
-ONNX_PATH = os.path.join(BASE_DIR, "data", "artifacts", "model.onnx")
+MODEL_DIR = resolve("data/artifacts/model")
+ONNX_PATH = resolve("data/artifacts/model.onnx")
+MANIFEST_PATH = resolve("data/artifacts/model_manifest.json")
 
 class ReviewRequest(BaseModel):
     text: str = Field(..., min_length=1)
@@ -33,16 +37,33 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 @app.on_event("startup")
 def load_model_and_tokenizer():
-    global tokenizer, ort_session
-    model_source = MODEL_DIR if os.path.exists(MODEL_DIR) else "distilbert-base-uncased-finetuned-sst-2-english"
-    tokenizer = AutoTokenizer.from_pretrained(model_source)
+    """Load the pre-exported artifact from disk. Never falls back to a substitute model.
 
-    if os.path.exists(ONNX_PATH):
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
-        ort_session = ort.InferenceSession(ONNX_PATH, sess_options=opts)
-    else:
-        print(f"Warning: ONNX file not found at {ONNX_PATH}")
+    The serving container never talks to MLflow directly - resolving the registry alias
+    and exporting to ONNX is `python -m src.serve.export_onnx`'s job, run ahead of time.
+    If that hasn't happened, the correct behaviour is to stay unloaded (503 on /predict),
+    not to quietly serve a different model with a different label space.
+    """
+    global tokenizer, ort_session, model_info
+
+    config_path = MODEL_DIR / "config.json"
+    if not config_path.exists() or not ONNX_PATH.exists():
+        print(
+            f"[serve] no exported model found at {MODEL_DIR} / {ONNX_PATH}. "
+            f"Run `python -m src.serve.export_onnx` first. Staying unloaded."
+        )
+        return
+
+    if MANIFEST_PATH.exists():
+        model_info = json.loads(MANIFEST_PATH.read_text())
+        print(f"[serve] serving {model_info['registered_model']} v{model_info['version']} "
+              f"(@{model_info['alias']}, run {model_info['run_id']})")
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1
+    ort_session = ort.InferenceSession(str(ONNX_PATH), sess_options=opts)
 
 @app.get("/health")
 def health_check():
@@ -51,7 +72,7 @@ def health_check():
 @app.post("/predict", response_model=PredictionResponse)
 def predict(payload: ReviewRequest):
     if ort_session is None:
-        raise HTTPException(status_code=503, detail="ONNX model not loaded.")
+        raise HTTPException(status_code=503, detail="Model not loaded. Run the export step first.")
 
     start_time = time.perf_counter()
     tokens = tokenizer(

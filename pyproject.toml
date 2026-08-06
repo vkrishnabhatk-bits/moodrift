@@ -22,9 +22,12 @@ dependencies = [
     "mlflow>=2.19",
     # config
     "pyyaml>=6.0",
-    # serving contract. FastAPI/uvicorn arrive in Week 3 with the app itself; the
-    # request/response schemas were written first and only need pydantic.
+    # serving contract, now that the app itself has landed (Week 3).
     "pydantic>=2.9",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "onnxruntime>=1.20",
+    "transformers>=4.46",
     # modelling
     "scikit-learn>=1.6",
     "lightgbm>=4.5",
