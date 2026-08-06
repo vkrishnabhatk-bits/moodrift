@@ -1,9 +1,40 @@
+# `docker compose up --build` works with no other setup, tagged moodrift-serve:dev.
+# `make serve` is the precise version: it sets GIT_SHA to the current commit first, so
+# the built image is tagged moodrift-serve:<git-sha> - the same traceability pattern as
+# the data/model versioning (PROJECT_PLAN.md §3) - and GET /model/info's image_tag
+# matches what's actually running instead of a placeholder.
+#
+# The model artifact is never baked into the image (see docker/Dockerfile.serve and
+# .dockerignore) - it's bind-mounted from the host below. Run
+# `python -m src.serve.export_onnx --quantize` on the host at least once before
+# `docker compose up`; without it the container starts and /health reports
+# model_loaded: false rather than serving a wrong or missing model.
 services:
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.serve
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+    image: moodrift-serve:${GIT_SHA:-dev}
     container_name: moodrift-api
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+    volumes:
+      # Read-only: the serving container never trains and never writes the model it
+      # loads (PROJECT_PLAN.md §3 boundary rules).
+      - ./data/artifacts:/app/data/artifacts:ro
+      # Read-write: the feature store's online read-through writes back cache misses,
+      # and the prediction log is appended to on every request.
+      - ./data/feature_store:/app/data/feature_store
+      - ./data/predictions:/app/data/predictions
+      # Named, not bind-mounted: this is a download cache (the feature-store encoder,
+      # pulled from Hugging Face Hub on first use - see docker/Dockerfile.serve), not
+      # project data, so it doesn't belong under ./data/ or in git either way.
+      - hf-cache:/app/.cache/huggingface
     restart: unless-stopped
+
+volumes:
+  hf-cache:

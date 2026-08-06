@@ -12,7 +12,8 @@ export PATH := $(CURDIR)/.venv/bin:$(PATH)
 
 .DEFAULT_GOAL := help
 .PHONY: help setup data ingest validate sample features train tier1 tier2 tier3 compare \
-        bench register reproduce test lint format mlflow-ui freeze clean-artifacts
+        bench register reproduce export-onnx image serve test lint format mlflow-ui \
+        freeze clean-artifacts
 
 help:  ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -67,6 +68,17 @@ reproduce:  ## Re-run a logged experiment and assert the metric matches: make re
 
 mlflow-ui:  ## Browse experiments at http://127.0.0.1:5000
 	.venv/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
+
+# ----------------------------------------------------------------------- serving
+
+export-onnx:  ## Export @production to ONNX + INT8, measuring the quantisation accuracy delta
+	$(PY) -m src.serve.export_onnx --quantize
+
+image:  ## Build the serving image, tagged moodrift-serve:<current git SHA>
+	GIT_SHA=$$(git rev-parse --short HEAD) docker compose build
+
+serve:  ## Build (if needed) and run the serving stack, tagged with the current git SHA
+	GIT_SHA=$$(git rev-parse --short HEAD) docker compose up --build
 
 # ------------------------------------------------------------------- quality
 
