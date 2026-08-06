@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 import numpy as np
 import onnxruntime as ort
@@ -26,12 +27,6 @@ from src.serve.schemas import (
     oversized_text,
 )
 
-app = FastAPI(
-    title="MooDrift REST API",
-    version="1.0.0",
-    description="Sentiment analysis inference using ONNX Runtime."
-)
-
 tokenizer = None
 ort_session = None
 model_info: dict | None = None
@@ -51,14 +46,14 @@ def softmax(x: np.ndarray) -> np.ndarray:
     return e_x / e_x.sum(axis=-1, keepdims=True)
 
 
-@app.on_event("startup")
 def load_model_and_tokenizer():
-    """Load the pre-exported artifact from disk. Never falls back to a substitute model.
+    """Load the pre-exported artifact from disk, once, at process startup.
 
-    The serving container never talks to MLflow directly - resolving the registry alias
-    and exporting to ONNX is `python -m src.serve.export_onnx`'s job, run ahead of time.
-    If that hasn't happened, the correct behaviour is to stay unloaded (503 on /predict),
-    not to quietly serve a different model with a different label space.
+    Never falls back to a substitute model. The serving container never talks to MLflow
+    directly - resolving the registry alias and exporting to ONNX is
+    `python -m src.serve.export_onnx`'s job, run ahead of time. If that hasn't happened,
+    the correct behaviour is to stay unloaded (503 on /predict), not to quietly serve a
+    different model with a different label space.
     """
     global tokenizer, ort_session, model_info, feature_store, tier2_cfg, quantised
 
@@ -98,6 +93,20 @@ def load_model_and_tokenizer():
     feature_store = FeatureStore(model=emb_cfg["model"], dimension=int(emb_cfg["dimension"]))
     embed.get_encoder(emb_cfg["model"], int(emb_cfg["max_seq_length"]))  # warm, off the request path
     print(f"[serve] feature store ready: {feature_store.stats()['rows']} rows at {feature_store.path}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_model_and_tokenizer()  # runs once, before the app starts accepting requests
+    yield
+
+
+app = FastAPI(
+    title="MooDrift REST API",
+    version="1.0.0",
+    description="Sentiment analysis inference using ONNX Runtime.",
+    lifespan=lifespan,
+)
 
 
 def _model_ref() -> ModelRef:
