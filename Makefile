@@ -82,7 +82,11 @@ format:  ## Auto-format and fix lint errors
 	.venv/bin/ruff check --fix src tests
 
 freeze:  ## Pin the resolved dependency set into requirements.lock.txt
-	uv pip freeze --python .venv > requirements.lock.txt
+	# Excludes the "-e file:///..." self-install line `uv pip freeze` adds for this
+	# project's own editable install: an absolute path to this machine's checkout, which
+	# breaks `pip install -r requirements.lock.txt` on any other machine (Docker's build
+	# included) - the file is meant to pin *dependencies*, not reference itself.
+	uv pip freeze --python .venv | grep -v '^-e ' > requirements.lock.txt
 
 clean-artifacts:  ## Remove local run artifacts (keeps data/ and the feature store)
 	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage
