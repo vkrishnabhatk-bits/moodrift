@@ -11,6 +11,7 @@ from src.config import load_config, resolve
 from src.features import embed
 from src.features.clean import normalise
 from src.features.store import FeatureStore
+from src.monitor.logger import log_prediction
 from src.provenance import text_key
 from src.serve.schemas import (
     BatchPredictRequest,
@@ -126,7 +127,7 @@ def _feature_source(key: str, normalised: str) -> str:
     return "live"
 
 
-def _predict_one(text: str) -> Prediction:
+def _predict_one(text: str, request_id: str, model_ref: ModelRef) -> Prediction:
     """Normalise -> tokenise -> ONNX forward pass -> one schema-shaped Prediction.
 
     Normalising with the same `src/features/clean.normalise` the batch pipeline uses
@@ -134,7 +135,12 @@ def _predict_one(text: str) -> Prediction:
     reasons: it's the train/serve skew guard - the champion was trained on normalised
     text - and it's what makes `text_hash` here match the feature store's key for the
     same string, which the read-through below depends on.
+
+    Takes `request_id`/`model_ref` (rather than being a pure function of `text`) because
+    it also writes the prediction log line - one row per prediction, not one per HTTP
+    request, so a batch call logs once per item while sharing the batch's request_id.
     """
+    started = time.perf_counter()
     normalised = normalise(text)
     key = text_key(normalised)
     feature_source = _feature_source(key, normalised)
@@ -153,14 +159,34 @@ def _predict_one(text: str) -> Prediction:
     logits = ort_session.run(None, onnx_inputs)[0]
     probs = softmax(logits)[0]
     stars = int(np.argmax(probs) + 1)
+    confidence = round(float(probs[stars - 1]), 4)
+    probabilities = {i + 1: round(float(p), 4) for i, p in enumerate(probs)}
+    # flags stay at their all-False defaults here: truncated/low_signal/out_of_domain
+    # detection is task B in moodrift-implementation.html's Week 3 task board.
+    flags = Flags()
+    latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+
+    log_prediction(
+        request_id=request_id,
+        text=normalised,
+        text_hash=key,
+        token_count=int(tokens["attention_mask"].sum()),
+        stars=stars,
+        confidence=confidence,
+        probabilities=probabilities,
+        flags=flags.model_dump(),
+        feature_source=feature_source,
+        model_version=model_ref.version,
+        run_id=model_ref.run_id,
+        git_sha=model_ref.git_sha,
+        latency_ms=latency_ms,
+    )
 
     return Prediction(
         stars=stars,
-        confidence=round(float(probs[stars - 1]), 4),
-        probabilities={i + 1: round(float(p), 4) for i, p in enumerate(probs)},
-        # flags stay at their all-False defaults here: truncated/low_signal/out_of_domain
-        # detection is task B in moodrift-implementation.html's Week 3 task board.
-        flags=Flags(),
+        confidence=confidence,
+        probabilities=probabilities,
+        flags=flags,
         feature_source=feature_source,
         text_hash=key,
     )
@@ -178,14 +204,17 @@ def predict(payload: PredictRequest):
     if oversized_text(payload.text):
         raise HTTPException(status_code=413, detail="text exceeds limits.max_input_chars")
 
+    request_id = payload.request_id or str(uuid.uuid4())
+    model_ref = _model_ref()
+
     start_time = time.perf_counter()
-    prediction = _predict_one(payload.text)
+    prediction = _predict_one(payload.text, request_id, model_ref)
     latency = (time.perf_counter() - start_time) * 1000.0
 
     return PredictResponse(
-        request_id=payload.request_id or str(uuid.uuid4()),
+        request_id=request_id,
         prediction=prediction,
-        model=_model_ref(),
+        model=model_ref,
         latency_ms=round(latency, 2),
     )
 
@@ -200,14 +229,17 @@ def predict_batch(payload: BatchPredictRequest):
         if oversized_text(text):
             raise HTTPException(status_code=413, detail="one or more texts exceed limits.max_input_chars")
 
+    request_id = payload.request_id or str(uuid.uuid4())
+    model_ref = _model_ref()
+
     start_time = time.perf_counter()
-    predictions = [_predict_one(text) for text in payload.texts]
+    predictions = [_predict_one(text, request_id, model_ref) for text in payload.texts]
     latency = (time.perf_counter() - start_time) * 1000.0
 
     return BatchPredictResponse(
-        request_id=payload.request_id or str(uuid.uuid4()),
+        request_id=request_id,
         count=len(predictions),
         predictions=predictions,
-        model=_model_ref(),
+        model=model_ref,
         latency_ms=round(latency, 2),
     )

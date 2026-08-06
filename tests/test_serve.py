@@ -1,7 +1,9 @@
+import json
 import uuid
 
 from fastapi.testclient import TestClient
 
+from src.config import load_config, resolve
 from src.serve.app import app
 
 
@@ -92,3 +94,43 @@ def test_predict_batch_endpoint_rejects_empty_list():
     with TestClient(app) as client:
         response = client.post("/predict/batch", json={"texts": []})
         assert response.status_code == 422
+
+
+def test_predict_writes_a_prediction_log_line():
+    """Every prediction appends one JSONL line matching docs/api_contract.md's schema."""
+    log_path = resolve(load_config("serve")["logging"]["path"])
+    request_id = f"log-test-{uuid.uuid4()}"
+
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": "Decent, arrived on time.", "request_id": request_id})
+    predicted = response.json()["prediction"]
+
+    lines = [json.loads(line) for line in log_path.read_text().splitlines()]
+    matches = [line for line in lines if line["request_id"] == request_id]
+    assert len(matches) == 1
+
+    logged = matches[0]
+    assert logged["stars"] == predicted["stars"]
+    assert logged["text_hash"] == predicted["text_hash"]
+    assert logged["feature_source"] == predicted["feature_source"]
+    assert logged["token_count"] > 0
+    assert logged["char_count"] > 0
+    assert "timestamp" in logged
+    # Raw text is opt-in (conf/serve.yaml logging.log_raw_text) and off by default.
+    assert "text" not in logged
+
+
+def test_predict_batch_writes_one_log_line_per_item():
+    """A batch of N logs N lines sharing one request_id, not one line for the batch."""
+    log_path = resolve(load_config("serve")["logging"]["path"])
+    request_id = f"log-test-batch-{uuid.uuid4()}"
+
+    with TestClient(app) as client:
+        client.post(
+            "/predict/batch",
+            json={"texts": ["First review.", "Second review.", "Third review."], "request_id": request_id},
+        )
+
+    lines = [json.loads(line) for line in log_path.read_text().splitlines()]
+    matches = [line for line in lines if line["request_id"] == request_id]
+    assert len(matches) == 3
