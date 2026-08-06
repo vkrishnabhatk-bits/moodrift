@@ -137,6 +137,28 @@ Two consequences worth stating now, because they change Week 3's priorities:
    champion the store is read for monitoring features rather than to skip work. Say that
    plainly in the report instead of implying a speed-up the champion does not get.
 
+**Measured (Week 3): the INT8 accuracy delta, on 1,000 real held-out test-split rows**
+(`python -m src.serve.export_onnx --quantize`, dynamic quantisation via
+`onnxruntime.quantization.quantize_dynamic`, `src.evaluate.metrics.compute_metrics` — the
+same function every tier's own evaluation uses). fp32 macro-F1 on this sample (0.6028) is
+close to the full 9,000-row test-split number (0.6001), which is what makes it a credible
+sample rather than a lucky/unlucky 1,000 rows.
+
+| | fp32 | INT8 | Delta |
+|---|---|---|---|
+| Macro-F1 | 0.6028 | 0.6039 | +0.0011 |
+| Macro-MAE | 0.4124 | 0.4152 | +0.0028 |
+| Artifact size | 313.4 MB | 78.7 MB | −75% |
+| 1,000-row batched CPU time (batch=32, 1 thread) | 361.5 s | 122.1 s | ~3x faster |
+
+Both deltas are noise-level — nowhere near the 5-point macro-F1 drop that would trip the
+`CANDIDATE` drift-trigger tier (§8, M5) — for a 4x smaller artifact and a meaningful CPU
+speed-up. **Serving now defaults to the INT8 build** (`app.py` prefers
+`model.int8.onnx`, falling back to the fp32 `model.onnx` if a plain export without
+`--quantize` was run). Numbers are logged onto the champion's own MLflow run
+(`onnx_fp32_macro_f1`, `onnx_int8_macro_f1`, etc.), not a side file, so they can't drift
+out of sync with which run was actually measured.
+
 ## Feature store on the request path
 
 1. Normalise the input with the same code the batch pipeline used (`src/features/clean.py`).
@@ -167,6 +189,9 @@ better than someone adding a `print` later.
 
 - Whether `/predict/batch` shares one tokenisation pass or loops the single path. Measure
   before deciding; the batch endpoint is first in the cut order if time runs short.
-- Whether the ONNX export replaces the transformers pipeline outright or sits behind a
-  `runtime.onnx` flag with the pipeline as fallback. The fallback costs an extra code path
-  but keeps a working service if quantisation degrades accuracy past the gate.
+- ~~Whether the ONNX export replaces the transformers pipeline outright or sits behind a
+  `runtime.onnx` flag with the pipeline as fallback.~~ **Resolved:** ONNX replaces the
+  pipeline outright; no fallback needed. The concern was quantisation degrading accuracy
+  past a gate, and it measured at noise-level (see the INT8 table above) — a fallback
+  code path defending against a risk that didn't materialise is exactly the kind of
+  gold-plating §1's cut-order principle warns against.

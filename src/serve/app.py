@@ -36,9 +36,11 @@ ort_session = None
 model_info: dict | None = None
 feature_store: FeatureStore | None = None
 tier2_cfg: dict | None = None
+quantised = False
 
 MODEL_DIR = resolve("data/artifacts/model")
 ONNX_PATH = resolve("data/artifacts/model.onnx")
+INT8_PATH = resolve("data/artifacts/model.int8.onnx")
 MANIFEST_PATH = resolve("data/artifacts/model_manifest.json")
 MAX_TOKENS = int(limits()["max_tokens"])
 
@@ -57,7 +59,7 @@ def load_model_and_tokenizer():
     If that hasn't happened, the correct behaviour is to stay unloaded (503 on /predict),
     not to quietly serve a different model with a different label space.
     """
-    global tokenizer, ort_session, model_info, feature_store, tier2_cfg
+    global tokenizer, ort_session, model_info, feature_store, tier2_cfg, quantised
 
     config_path = MODEL_DIR / "config.json"
     if not config_path.exists() or not ONNX_PATH.exists():
@@ -74,9 +76,17 @@ def load_model_and_tokenizer():
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
 
+    # Prefer the INT8 build when it exists: task 4 measured the accuracy delta at
+    # +0.0011 macro-F1 / +0.0028 macro-MAE on 1,000 held-out rows - noise-level - for a
+    # 75% smaller artifact (313 -> 79 MB) and ~3x faster batched CPU inference. Falls
+    # back to fp32 for anyone who ran a plain export without `--quantize`.
+    active_path = INT8_PATH if INT8_PATH.exists() else ONNX_PATH
+    quantised = active_path == INT8_PATH
+
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 1
-    ort_session = ort.InferenceSession(str(ONNX_PATH), sess_options=opts)
+    ort_session = ort.InferenceSession(str(active_path), sess_options=opts)
+    print(f"[serve] ONNX runtime: {active_path.name} (quantised={quantised})")
 
     # The feature store's tier-2 embedding, not the champion's own weights - the champion
     # doesn't consume it on its inference path (it has its own tokeniser/forward pass), so
