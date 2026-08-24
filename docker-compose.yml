@@ -9,6 +9,11 @@
 # `python -m src.serve.export_onnx --quantize` on the host at least once before
 # `docker compose up`; without it the container starts and /health reports
 # model_loaded: false rather than serving a wrong or missing model.
+#
+# Three services, per PROJECT_PLAN.md §8's Week 3 deliverable ("API + MLflow +
+# Prometheus, one docker compose up for a grader") - api alone shipped with PR #1; mlflow
+# and prometheus were the gap closed here. Both are read-only/scrape-only: neither writes
+# anything the api service or the training plane depends on.
 services:
   api:
     build:
@@ -34,6 +39,35 @@ services:
       # pulled from Hugging Face Hub on first use - see docker/Dockerfile.serve), not
       # project data, so it doesn't belong under ./data/ or in git either way.
       - hf-cache:/app/.cache/huggingface
+    restart: unless-stopped
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mlflow
+    container_name: moodrift-mlflow
+    ports:
+      # Host 5001, not 5000: on macOS, port 5000 is AirPlay Receiver's default (Control
+      # Center) and `docker compose up` fails outright with "address already in use" if
+      # it's on - found by actually running this, not assumed. The container's own port
+      # stays 5000; only the host-side mapping changes.
+      - "5001:5000"
+    volumes:
+      # Read-only: this container only browses tracking history, same boundary as the
+      # api service's model-artifact mount above - it never trains and never writes a run.
+      - ./mlflow.db:/app/mlflow.db:ro
+      - ./mlruns:/app/mlruns:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: moodrift-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
     restart: unless-stopped
 
 volumes:

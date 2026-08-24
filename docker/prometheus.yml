@@ -1,0 +1,9 @@
+# Scrapes the api service's GET /metrics on the shared compose network - "api" resolves
+# via Docker's embedded DNS, no hardcoded container IP.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: moodrift-api
+    static_configs:
+      - targets: ["api:8000"]
