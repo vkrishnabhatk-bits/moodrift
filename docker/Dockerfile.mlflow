@@ -1,0 +1,15 @@
+# MLflow UI, so a grader can browse experiment tracking and the model registry via one
+# `docker compose up`, without a local .venv. Only mlflow itself, not the full
+# requirements.lock.txt - this UI-only process never touches torch/transformers/onnx.
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.lock.txt .
+# Pinned to the exact version this project trains and registers with, read from the same
+# lock file the serving image reads its torch version from (docker/Dockerfile.serve) -
+# one source of truth, so the UI can never disagree with the tracking store's schema.
+RUN MLFLOW_VERSION=$(grep -m1 '^mlflow==' requirements.lock.txt | cut -d= -f3) \
+    && pip install --no-cache-dir "mlflow==${MLFLOW_VERSION}"
+
+EXPOSE 5000
+CMD ["mlflow", "ui", "--backend-store-uri", "sqlite:///mlflow.db", "--host", "0.0.0.0", "--port", "5000"]

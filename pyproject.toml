@@ -43,6 +43,11 @@ dependencies = [
     "torch>=2.5",
     # language identification (tier 0)
     "py3langid>=0.3",
+    # monitoring: input-drift PSI/KS uses scipy directly; the Evidently HTML drift
+    # report is Week 3's other consumer (Week 1/2 stack table: "not yet installed -
+    # dependencies are added when the code that uses them is written").
+    "scipy>=1.14",
+    "evidently>=0.7",
 ]
 
 [project.optional-dependencies]

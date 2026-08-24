@@ -62,16 +62,30 @@ performance_drift:
   # not at prediction time. These thresholds are therefore evaluated on whatever labelled
   # slice exists, and never block the statistical detectors above.
   metrics: [macro_f1, macro_mae]
-  # The champion's measured test macro-F1 (0.6001) is the baseline. Recorded explicitly
-  # rather than read from MLflow at runtime so a monitoring run cannot silently rebaseline
-  # itself against a worse model.
-  baseline_macro_f1: 0.6001
-  baseline_macro_mae: 0.4226
+  # CORRECTED in Week 3, by measurement (src/monitor/simulate.py, ADR-0006). The 0.6001
+  # figure this used to say is real, but it is the *training-time* number: tier3's own
+  # evaluation scores `model_input` (Summary + ". " + Text, src/features/clean.py). The
+  # live `/predict` endpoint has no Summary field at all - `PredictRequest` is a single
+  # `text` string (docs/api_contract.md) - and `src/serve/app.py` feeds that string
+  # straight to the model with no Summary prepended. Scored the same way `/predict`
+  # actually scores (Text only, no Summary) on 4,000 real held-out rows: macro-F1 0.569,
+  # macro-MAE 0.474 - roughly 4.8 macro-F1 points below the training-time number, and a
+  # rolling-window baseline pinned against the wrong distribution would either miss real
+  # degradation or (worse) flag every window as already-degraded from window one. This
+  # is a real train/serve skew in the shipped API, not a monitoring-config problem -
+  # flagged for the serving-plane owner in ADR-0006; monitoring's job here is to measure
+  # against what is actually served, not what training scored.
+  baseline_macro_f1: 0.569
+  baseline_macro_mae: 0.474
   min_labelled_samples: 500
-  # 5 points below baseline lands at 0.55 - which is also the project's minimum acceptable
-  # macro-F1. The trigger fires exactly when the model stops meeting the bar it shipped at.
-  macro_f1_drop: 0.05
-  macro_mae_rise: 0.10
+  # Kept as an absolute floor, not a fixed "5 points": PROJECT_PLAN.md §2 sets 0.55
+  # macro-F1 as the project's own minimum acceptable score, independent of whichever
+  # baseline this config pins. macro_f1_drop is baseline - 0.55 so "the trigger fires
+  # exactly when the model stops meeting the bar it shipped at" stays true after the
+  # baseline correction above, rather than silently drifting to a different number.
+  # Same logic for macro_mae_rise against §2's 0.55-star MAE ceiling.
+  macro_f1_drop: 0.019
+  macro_mae_rise: 0.076
 
 trigger:
   # Four tiers, because "retrain" is not one decision. Statistical drift is a reason to
