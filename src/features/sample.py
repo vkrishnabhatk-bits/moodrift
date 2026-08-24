@@ -28,7 +28,7 @@ from sklearn.model_selection import train_test_split
 
 from src.config import ensure_parent, load_config, resolve
 from src.features.clean import build_model_input
-from src.ingest.language_filter import english_mask
+from src.features.language_filter import english_mask
 from src.provenance import set_seeds, text_key
 
 LABEL = "Score"
