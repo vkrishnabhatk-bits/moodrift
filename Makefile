@@ -80,6 +80,11 @@ image:  ## Build the serving image, tagged moodrift-serve:<current git SHA>
 serve:  ## Build (if needed) and run the serving stack, tagged with the current git SHA
 	GIT_SHA=$$(git rev-parse --short HEAD) docker compose up --build
 
+# ---------------------------------------------------------------- monitoring
+
+simulate-drift:  ## Run the four drift scenarios end to end, write docs/drift_report.{md,html}
+	$(PY) -m src.monitor.simulate
+
 # ------------------------------------------------------------------- quality
 
 test:  ## Run the test suite
