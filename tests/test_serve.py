@@ -7,14 +7,53 @@ from src.config import load_config, resolve
 from src.serve.app import app
 
 
-def test_health_endpoint():
-    """Verify that the health check route returns HTTP 200 OK."""
+def test_health_endpoint_does_not_touch_the_model():
+    """Liveness only: status 'ok' and an uptime, nothing about model state."""
     with TestClient(app) as client:
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "healthy"
+        assert data["status"] == "ok"
+        assert data["uptime_seconds"] >= 0
+        assert "model_loaded" not in data
+
+
+def test_ready_endpoint_when_model_loaded():
+    """A loaded model and a reachable store report 200 and ready: true."""
+    with TestClient(app) as client:
+        response = client.get("/ready")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ready"] is True
         assert data["model_loaded"] is True
+        assert data["feature_store_reachable"] is True
+
+
+def test_model_info_endpoint():
+    """/model/info reports the whole traceability story: model, tier, hashes, store, runtime."""
+    with TestClient(app) as client:
+        response = client.get("/model/info")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model"]["name"] == "moodrift-classifier"
+        assert data["model"]["alias"] != "latest"
+        assert data["tier"]
+        assert data["data_hash"]
+        assert data["feature_store"]["rows"] > 0
+        assert set(data["runtime"].keys()) >= {"onnx", "quantised", "threads", "device"}
+        assert data["served_since"]
+
+
+def test_metrics_endpoint_returns_prometheus_exposition():
+    """/metrics is Prometheus text exposition, and reflects predictions already served."""
+    with TestClient(app) as client:
+        client.post("/predict", json={"text": "Metrics probe review, works as expected."})
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        assert "text/plain" in response.headers["content-type"]
+        body = response.text
+        assert "moodrift_predictions_total" in body
+        assert "moodrift_model_loaded 1.0" in body
 
 
 def test_predict_endpoint_success():
@@ -134,3 +173,50 @@ def test_predict_batch_writes_one_log_line_per_item():
     lines = [json.loads(line) for line in log_path.read_text().splitlines()]
     matches = [line for line in lines if line["request_id"] == request_id]
     assert len(matches) == 3
+
+
+def test_predict_flags_truncated_text_beyond_the_token_window():
+    """Long input is served (200), not rejected, with truncated: true."""
+    long_text = "This product is absolutely wonderful and I would recommend it to everyone. " * 20
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": long_text})
+        assert response.status_code == 200
+        assert response.json()["prediction"]["flags"]["truncated"] is True
+
+
+def test_predict_flags_low_signal_for_emoji_only_input():
+    """Emoji-only input is served (200), not rejected, with low_signal: true."""
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": "\U0001F600\U0001F600\U0001F600\U0001F600"})
+        assert response.status_code == 200
+        flags = response.json()["prediction"]["flags"]
+        assert flags["low_signal"] is True
+        assert flags["out_of_domain"] is False  # skipped once already low_signal
+
+
+def test_predict_flags_low_signal_for_bare_url():
+    """A bare URL reduces to the <url> placeholder token, which carries no real signal."""
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": "https://example.com/a-product-page"})
+        assert response.status_code == 200
+        assert response.json()["prediction"]["flags"]["low_signal"] is True
+
+
+def test_predict_flags_out_of_domain_for_non_english_text():
+    """Confidently-detected non-English text is served (200) with out_of_domain: true."""
+    spanish = "Este producto es fantastico y funciona muy bien todos los dias, lo recomiendo totalmente."
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": spanish})
+        assert response.status_code == 200
+        flags = response.json()["prediction"]["flags"]
+        assert flags["out_of_domain"] is True
+        assert flags["low_signal"] is False
+
+
+def test_predict_flags_default_false_for_ordinary_english_text():
+    """A plain, in-window, in-domain review carries no flags at all."""
+    with TestClient(app) as client:
+        response = client.post("/predict", json={"text": "Arrived on time and tasted great, will buy again."})
+        assert response.status_code == 200
+        flags = response.json()["prediction"]["flags"]
+        assert flags == {"truncated": False, "low_signal": False, "out_of_domain": False}
