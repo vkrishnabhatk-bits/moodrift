@@ -159,6 +159,31 @@ speed-up. **Serving now defaults to the INT8 build** (`app.py` prefers
 (`onnx_fp32_macro_f1`, `onnx_int8_macro_f1`, etc.), not a side file, so they can't drift
 out of sync with which run was actually measured.
 
+## HTTP load test (Week 3)
+
+`scripts/smoke_test.sh` (curl) and `postman/moodrift.postman_collection.json` cover the
+happy path plus every row of the edge-case table above, run against a live
+`uvicorn`/`docker compose` process. `hey` measured `/predict` and `/predict/batch`
+end to end - real HTTP, not the in-process model-only benchmark the table above uses.
+
+| Load | p50 | p95 | p99 | Notes |
+|---|---|---|---|---|
+| `/predict`, sequential (`hey -c 1`, n=200) | 120.7 ms | 121.7 ms | 122.4 ms | Comparable methodology to `make bench`'s single-thread number; the ~78 ms over the model's own 43.7 ms is HTTP + normalisation + feature-store lookup + flag detection + logging - within the ~86 ms budget §Latency budget above allocated for exactly that. |
+| `/predict`, concurrent (`hey -c 10`, n=500) | 184.4 ms | 225.9 ms | 246.0 ms | **Exceeds the 130 ms target under concurrency.** One `uvicorn` worker, one process: concurrent requests queue for the single-threaded ONNX session and for Python's GIL rather than running in parallel. Scaling target concurrency needs more worker processes (`uvicorn --workers N`) or replicas, not a code fix - out of scope for this PR, recorded here so the number is measured rather than assumed. |
+| `/predict/batch`, batch=8, concurrent (`hey -c 5`, n=100) | 984 ms | 1,018 ms | 1,037 ms | Confirms the "Open for Week 3" note below: the batch endpoint loops the single-item path (~120 ms × 8 ≈ 960 ms observed), it does not share one tokenisation pass. |
+
+**A concurrency bug found and fixed while running this test, not before it.** The first
+`hey -c 10` run threw sporadic `500`s (36 of 500) - `RuntimeError: Already borrowed`
+inside `tokenizers`. HuggingFace's fast (Rust) tokenizer mutates shared internal state
+on every call to configure truncation/padding, which is not safe for concurrent callers
+on one instance; FastAPI runs sync routes in a thread pool, so concurrent `/predict`
+calls raced on the single module-level `tokenizer`. Fixed with a `threading.Lock` around
+tokenisation only (`src/serve/app.py`, `_tokenize`) - microseconds of critical section,
+not the ONNX forward pass, which dominates latency and is safe to run concurrently
+(`onnxruntime.InferenceSession.run` is thread-safe). Re-run after the fix: 0 errors
+across 500 requests. This is exactly why the load test scope in §9 of `PROJECT_PLAN.md`
+exists as its own line item rather than being assumed from the model-only benchmark.
+
 ## Feature store on the request path
 
 1. Normalise the input with the same code the batch pipeline used (`src/features/clean.py`).
@@ -187,8 +212,11 @@ better than someone adding a `print` later.
 
 ## Open for Week 3
 
-- Whether `/predict/batch` shares one tokenisation pass or loops the single path. Measure
-  before deciding; the batch endpoint is first in the cut order if time runs short.
+- Whether `/predict/batch` shares one tokenisation pass or loops the single path.
+  **Measured, not yet decided:** it currently loops (§HTTP load test above - 8-item
+  batches scale ~linearly with the single-item latency, ~960 ms observed vs ~120 ms × 8).
+  A shared tokenisation pass would cut that, but the batch endpoint is first in the cut
+  order (§10) if time runs short, so this stays open rather than becoming a required fix.
 - ~~Whether the ONNX export replaces the transformers pipeline outright or sits behind a
   `runtime.onnx` flag with the pipeline as fallback.~~ **Resolved:** ONNX replaces the
   pipeline outright; no fallback needed. The concern was quantisation degrading accuracy
