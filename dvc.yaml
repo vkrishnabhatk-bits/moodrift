@@ -69,7 +69,7 @@ stages:
     deps:
       - src/features/sample.py
       - src/features/clean.py
-      - src/ingest/language_filter.py
+      - src/features/language_filter.py
       - src/config.py
       - src/provenance.py
       - data/interim/validated.parquet

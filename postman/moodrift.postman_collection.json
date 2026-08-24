@@ -1,0 +1,331 @@
+{
+  "info": {
+    "name": "moodrift API",
+    "description": "Happy path + every edge case from docs/api_contract.md. Run against a local `docker compose up` or `uvicorn src.serve.app:app` with {{base_url}} set (default http://localhost:8000).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" }
+  ],
+  "item": [
+    {
+      "name": "Liveness / readiness / info / metrics",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": { "method": "GET", "url": "{{base_url}}/health" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('status is ok', () => pm.expect(body.status).to.eql('ok'));",
+                  "pm.test('does not report model_loaded (liveness only)', () => pm.expect(body).to.not.have.property('model_loaded'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /ready",
+          "request": { "method": "GET", "url": "{{base_url}}/ready" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 when model is loaded', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('ready is true', () => pm.expect(body.ready).to.eql(true));",
+                  "pm.test('model_loaded and feature_store_reachable are true', () => {",
+                  "  pm.expect(body.model_loaded).to.eql(true);",
+                  "  pm.expect(body.feature_store_reachable).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /model/info",
+          "request": { "method": "GET", "url": "{{base_url}}/model/info" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('alias is never latest', () => pm.expect(body.model.alias).to.not.eql('latest'));",
+                  "pm.test('carries the full traceability block', () => {",
+                  "  pm.expect(body.model.run_id).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.model.git_sha).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.tier).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.data_hash).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.feature_store).to.have.property('rows');",
+                  "  pm.expect(body.runtime).to.include.keys('onnx', 'quantised', 'threads', 'device');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /metrics",
+          "request": { "method": "GET", "url": "{{base_url}}/metrics" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK, Prometheus exposition', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.include('moodrift_predictions_total');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Predict - happy path",
+      "item": [
+        {
+          "name": "POST /predict",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Arrived fast and works exactly as described.\"\n}"
+            },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('stars in 1..5', () => pm.expect(body.prediction.stars).to.be.within(1, 5));",
+                  "pm.test('probabilities sum to ~1.0', () => {",
+                  "  const total = Object.values(body.prediction.probabilities).reduce((a, b) => a + b, 0);",
+                  "  pm.expect(total).to.be.closeTo(1.0, 1e-2);",
+                  "});",
+                  "pm.test('no flags set on a plain in-domain review', () => {",
+                  "  pm.expect(body.prediction.flags).to.eql({ truncated: false, low_signal: false, out_of_domain: false });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /predict/batch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"texts\": [\"Loved it.\", \"Terrible, broke on day one.\"]\n}"
+            },
+            "url": "{{base_url}}/predict/batch"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('one prediction per input, in order', () => {",
+                  "  pm.expect(body.count).to.eql(2);",
+                  "  pm.expect(body.predictions.length).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Predict - edge cases (docs/api_contract.md)",
+      "item": [
+        {
+          "name": "Whitespace-only text -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"text\": \"   \" }" },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": ["pm.test('422', () => pm.response.to.have.status(422));"] } }
+          ]
+        },
+        {
+          "name": "Empty text -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"text\": \"\" }" },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": ["pm.test('422', () => pm.response.to.have.status(422));"] } }
+          ]
+        },
+        {
+          "name": "Beyond the 256-token window -> 200, truncated: true",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"text\": \"This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone. This product is absolutely wonderful and I would recommend it to everyone.\" }"
+            },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK (served, not rejected)', () => pm.response.to.have.status(200));",
+                  "pm.test('truncated: true', () => pm.expect(pm.response.json().prediction.flags.truncated).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "> 20,000 characters -> 413",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"text\": \"{{oversize_text}}\" }" },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "exec": ["pm.collectionVariables.set('oversize_text', 'x'.repeat(20001));"] }
+            },
+            { "listen": "test", "script": { "exec": ["pm.test('413', () => pm.response.to.have.status(413));"] } }
+          ]
+        },
+        {
+          "name": "Batch > 64 items -> 413",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"texts\": {{oversize_batch}}\n}" },
+            "url": "{{base_url}}/predict/batch"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('oversize_batch', JSON.stringify(Array(65).fill('fine')));"
+                ]
+              }
+            },
+            { "listen": "test", "script": { "exec": ["pm.test('413', () => pm.response.to.have.status(413));"] } }
+          ]
+        },
+        {
+          "name": "Emoji-only text -> 200, low_signal: true",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"text\": \"😀😀😀😀\" }" },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK (served, not rejected)', () => pm.response.to.have.status(200));",
+                  "pm.test('low_signal: true', () => pm.expect(pm.response.json().prediction.flags.low_signal).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bare URL -> 200, low_signal: true",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"text\": \"https://example.com/a-product-page\" }" },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('low_signal: true', () => pm.expect(pm.response.json().prediction.flags.low_signal).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-English text -> 200, out_of_domain: true",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"text\": \"Este producto es fantastico y funciona muy bien todos los dias, lo recomiendo totalmente.\" }"
+            },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK (served, not rejected)', () => pm.response.to.have.status(200));",
+                  "pm.test('out_of_domain: true', () => pm.expect(pm.response.json().prediction.flags.out_of_domain).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Control chars / zero-width joiners -> 200, sanitised",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"text\": \"Many control\\u0000and zero-width\\u200bcharacters here, still readable.\" }"
+            },
+            "url": "{{base_url}}/predict"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

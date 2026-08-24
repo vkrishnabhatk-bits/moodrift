@@ -1,0 +1,34 @@
+# The serving image never trains and never reads the raw dataset (see
+# docs/api_contract.md's boundary rules) - it loads one model artifact plus one config,
+# supplied at runtime via the bind mounts in docker-compose.yml, not baked into the image.
+data/
+
+# Local-only experiment tracking - never leaves this machine, never read by the container.
+mlruns/
+mlflow.db
+artifacts/
+
+# Version control, virtualenv, caches - irrelevant to the runtime image and large.
+.git/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Not needed to serve a request.
+notebooks/
+docs/
+tests/
+dvc.yaml
+dvc.lock
+.dvc/
+
+# Local-only planning documents - never committed, never shipped in an image either.
+*.docx
+PROJECT_PLAN.md
+moodrift-implementation.html
+sentiment-mlops-plan.html

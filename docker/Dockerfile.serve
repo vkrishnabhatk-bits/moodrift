@@ -1,0 +1,79 @@
+# Serving image. Builds from requirements.lock.txt - the one pinned dependency file
+# (pyproject.toml has a matching comment on why there isn't a second, serving-only lock:
+# two files that can drift apart is worse than one file installing a few packages this
+# particular process doesn't strictly need, e.g. dvc/pandera/lightgbm from the data and
+# tier-2 planes). The model artifact itself is never baked in here - see .dockerignore
+# and the volume mounts in docker-compose.yml - this image builds the same way whether
+# or not a model has been exported yet.
+
+# ---------------------------------------------------------------------------- builder
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+COPY requirements.lock.txt .
+
+# requirements.lock.txt was frozen on macOS, where pip's platform-specific resolution for
+# torch never touches CUDA at all - so the file itself has no nvidia-*/triton lines to
+# strip. On Linux, the same `torch==<pinned>` line resolves to the CUDA-enabled wheel,
+# which pulls ~3.5 GB of NVIDIA libraries and triton this CPU-only, ONNX-Runtime-driven
+# service never calls, plus CUDA kernels bundled inside torch's own .so files. Installing
+# everything first keeps every other pinned version exactly as resolved. The swap to the
+# CPU-only build is a manual rm + install rather than `pip install --force-reinstall`:
+# tried first, but pip's replace-tracking didn't recognise "torch==2.13.0" and
+# "torch==2.13.0+cpu" as the same package (the +cpu local version identifier throws it
+# off), so it left the old GPU build's dist-info *and* its bundled CUDA .so files sitting
+# alongside the new one instead of removing them - explicit removal first is what
+# actually gets rid of them. Reads the version from requirements.lock.txt rather than
+# hardcoding it a second time, so the two can't quietly disagree.
+RUN pip install --no-cache-dir --prefix=/install -r requirements.lock.txt \
+    && TORCH_VERSION=$(grep -m1 '^torch==' requirements.lock.txt | cut -d= -f3) \
+    && rm -rf /install/lib/python3.11/site-packages/torch \
+              /install/lib/python3.11/site-packages/torchgen \
+              "/install/lib/python3.11/site-packages/torch-${TORCH_VERSION}.dist-info" \
+    && pip install --no-cache-dir --prefix=/install --no-deps \
+         "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu \
+    && find /install/lib/python3.11/site-packages -maxdepth 1 \
+         \( -iname 'nvidia*' -o -iname 'triton*' \) -exec rm -rf {} +
+
+# ----------------------------------------------------------------------------- runtime
+FROM python:3.11-slim AS runtime
+
+# Baked in at build time so a running container can report which image it is without
+# talking to git - GET /model/info reads this the same way it reads the MLflow run ID,
+# so a prediction traces back to an exact commit through two independent paths.
+ARG GIT_SHA=dev
+ENV IMAGE_TAG=moodrift-serve:${GIT_SHA} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    # sentence-transformers downloads all-MiniLM-L6-v2 from the Hub on first use (the
+    # feature-store encoder, warmed at startup) and caches it via huggingface_hub, which
+    # defaults to a path under $HOME - undefined for the home-less user below. Pointing
+    # it at an explicit, owned directory avoids depending on $HOME existing at all.
+    HF_HOME=/app/.cache/huggingface
+
+# Non-root: nothing this process does needs root, and running as root in a container
+# that answers HTTP requests is a needless privilege to hand anyone who finds a hole in
+# it. --no-log-init avoids a slow/unbounded UID scan on some base images for a user this
+# image never removes.
+RUN groupadd --system moodrift \
+    && useradd --system --no-log-init --gid moodrift moodrift
+
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+COPY src/ ./src
+COPY conf/ ./conf
+
+# Mount points for the bind mounts in docker-compose.yml, plus the HF cache above -
+# created and owned here so the non-root user can write to them (the feature store's
+# online writes, the prediction log, the downloaded encoder) without docker-compose
+# needing to fix host-side permissions.
+RUN mkdir -p data/artifacts data/feature_store data/predictions .cache/huggingface \
+    && chown -R moodrift:moodrift /app
+
+USER moodrift
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.serve.app:app", "--host", "0.0.0.0", "--port", "8000"]

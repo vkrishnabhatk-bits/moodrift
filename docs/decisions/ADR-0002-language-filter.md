@@ -58,5 +58,11 @@ project's reproducibility requirement.
   long reviews rather than toward English ones.
 - The filter reports how many rows it dropped (317 on the current run), so an unexpected
   jump is visible rather than silent.
-- If the team later wants fastText specifically, `src/ingest/language_filter.py` exposes a
+- If the team later wants fastText specifically, `src/features/language_filter.py` exposes a
   single `english_mask` function and can be swapped without touching the sample stage.
+- **Relocated from `src/ingest/` to `src/features/` in Week 3**: the API's `out_of_domain`
+  flag needs the same `detect()` this module already exposes, and `src/serve/` is not
+  allowed to import `src/ingest/` (`docs/api_contract.md` boundary rules). `src/features/`
+  already sits on both sides of that boundary — training's `sample.py` and serving's
+  `app.py` both import from it — so moving the module there gives both callers the one
+  detector, rather than two copies quietly drifting apart.

@@ -22,9 +22,20 @@ dependencies = [
     "mlflow>=2.19",
     # config
     "pyyaml>=6.0",
-    # serving contract. FastAPI/uvicorn arrive in Week 3 with the app itself; the
-    # request/response schemas were written first and only need pydantic.
+    # serving contract, now that the app itself has landed (Week 3).
     "pydantic>=2.9",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "onnxruntime>=1.20",
+    # onnxruntime.quantization imports onnx directly for shape inference/preprocessing -
+    # a real dependency of the INT8 export step, not a transitive one to leave undeclared.
+    "onnx>=1.17",
+    "transformers>=4.46",
+    # prediction logging - written on the request path (Week 3), not deferred to the
+    # monitoring build, so the drift detectors have real data the day they're written.
+    "structlog>=24.4",
+    # GET /metrics Prometheus exposition (Week 3).
+    "prometheus-client>=0.21",
     # modelling
     "scikit-learn>=1.6",
     "lightgbm>=4.5",
