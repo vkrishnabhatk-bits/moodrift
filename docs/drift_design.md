@@ -1,10 +1,15 @@
 # Drift detection and retraining trigger — design
 
 **Status:** designed in Week 2, implemented in Week 3. The thresholds live in
-`conf/monitor.yaml`; this document is why they have the values they do. It becomes two
-ADRs in Week 3 (`ADR-0006-drift-detection-approach`, `ADR-0007-retraining-trigger-design`)
-once the implementation has either confirmed the reasoning or corrected it — writing them
-now would mean writing down predictions and calling them decisions.
+`conf/monitor.yaml`; this document is why they have the values they do. Now implemented,
+run against real data, and written up as two ADRs -
+[`ADR-0006-drift-detection-approach`](decisions/ADR-0006-drift-detection-approach.md)
+(what the implementation confirmed, and the one thing it corrected: the performance-drift
+baseline was measured on the wrong input format) and
+[`ADR-0007-retraining-trigger-design`](decisions/ADR-0007-retraining-trigger-design.md).
+Results from the four scenario runs: [`drift_report.md`](drift_report.md). The open
+questions below are resolved in ADR-0006; left in place as a record of what Week 2 didn't
+yet know, not edited out now that Week 3 does.
 
 ## What can actually drift here
 
