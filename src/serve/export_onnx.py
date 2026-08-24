@@ -11,6 +11,7 @@ Run with ``python -m src.serve.export_onnx``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,8 @@ import torch
 from src.config import load_config, resolve
 from src.provenance import git_sha
 from src.train import registry
+
+_DATA_SPLITS = ("train", "val", "test")
 
 LOCAL_MODEL_DIR = resolve("data/artifacts/model")
 ONNX_OUTPUT_PATH = resolve("data/artifacts/model.onnx")
@@ -53,6 +56,25 @@ def _resolve_model():
     return pipeline.tokenizer, model, info
 
 
+def _training_run_provenance(run_id: str) -> tuple[str, str]:
+    """Tier and a combined data-splits hash, read from the training run's own tags.
+
+    Both are written once, at training time (``registry.start_run`` tags ``tier``;
+    ``registry.log_data_provenance`` tags ``data.<split>.sha256``) - reading them back
+    here rather than recomputing means ``/model/info`` reports exactly what the model
+    was actually trained on, not today's ``dvc.lock``. Combined into one hash (not three
+    separate fields) because the response schema carries a single ``data_hash`` string,
+    the same shape the git SHA and run ID already have.
+    """
+    run = mlflow.tracking.MlflowClient().get_run(run_id)
+    tier = run.data.tags.get("tier", "unknown")
+    split_hashes = [run.data.tags.get(f"data.{split}.sha256", "") for split in _DATA_SPLITS]
+    if not all(split_hashes):
+        return tier, "unknown"
+    combined = hashlib.sha256("".join(split_hashes).encode()).hexdigest()[:16]
+    return tier, combined
+
+
 def export_model() -> None:
     tokenizer, model, info = _resolve_model()
     model.eval()
@@ -64,12 +86,15 @@ def export_model() -> None:
     # this file, so it has to actually be written, not just the tokenizer's own files.
     model.config.save_pretrained(LOCAL_MODEL_DIR)
 
+    tier, data_hash = _training_run_provenance(info["run_id"])
     manifest = {
         "registered_model": registry.REGISTERED_MODEL,
         "alias": info["alias"],
         "version": info["version"],
         "run_id": info["run_id"],
         "git_sha": git_sha(),
+        "tier": tier,
+        "data_hash": data_hash,
     }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
     print(f"[export] manifest written -> {MANIFEST_PATH}")

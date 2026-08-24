@@ -34,6 +34,8 @@ dependencies = [
     # prediction logging - written on the request path (Week 3), not deferred to the
     # monitoring build, so the drift detectors have real data the day they're written.
     "structlog>=24.4",
+    # GET /metrics Prometheus exposition (Week 3).
+    "prometheus-client>=0.21",
     # modelling
     "scikit-learn>=1.6",
     "lightgbm>=4.5",
