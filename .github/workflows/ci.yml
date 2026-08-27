@@ -1,0 +1,53 @@
+# CI: lint, type-check, unit tests, and a serving-image build. No deploy step, and
+# intentionally no full `docker compose up` - that needs a real exported model
+# (data/artifacts/model.onnx), which lives only in local/DVC-tracked storage with no
+# remote reachable from a runner (see PROJECT_PLAN.md §5). This workflow proves the code
+# is sound, not that the model is; local `make data && make train && make bench` still
+# owns that half of the story.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up virtualenv
+        run: make setup
+
+      - name: Lint + type-check
+        run: make lint
+
+      # Three files are skipped here, not slimmed: each needs a real local artifact that
+      # a fresh checkout never has and no CI-reachable remote provides -
+      # test_serve.py needs a trained+exported model (data/artifacts/model.onnx),
+      # test_monitor_detectors.py and test_monitor_simulate.py need the frozen reference
+      # window / processed splits (data/reference, data/processed). Verified by actually
+      # running the suite with data/ moved aside: exactly these three fail, the other 127
+      # tests (including all of test_reproduce.py, which mocks its MLflow run objects
+      # rather than touching a live tracking store) are self-contained. `make test`
+      # locally still runs everything, real data included.
+      - name: Test
+        run: >-
+          .venv/bin/pytest
+          --ignore=tests/test_serve.py
+          --ignore=tests/test_monitor_detectors.py
+          --ignore=tests/test_monitor_simulate.py
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the serving image
+        run: docker build -f docker/Dockerfile.serve -t moodrift-serve:ci .
