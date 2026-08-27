@@ -170,7 +170,7 @@ end to end - real HTTP, not the in-process model-only benchmark the table above 
 |---|---|---|---|---|
 | `/predict`, sequential (`hey -c 1`, n=200) | 120.7 ms | 121.7 ms | 122.4 ms | Comparable methodology to `make bench`'s single-thread number; the ~78 ms over the model's own 43.7 ms is HTTP + normalisation + feature-store lookup + flag detection + logging - within the ~86 ms budget §Latency budget above allocated for exactly that. |
 | `/predict`, concurrent (`hey -c 10`, n=500) | 184.4 ms | 225.9 ms | 246.0 ms | **Exceeds the 130 ms target under concurrency.** One `uvicorn` worker, one process: concurrent requests queue for the single-threaded ONNX session and for Python's GIL rather than running in parallel. Scaling target concurrency needs more worker processes (`uvicorn --workers N`) or replicas, not a code fix - out of scope for this PR, recorded here so the number is measured rather than assumed. |
-| `/predict/batch`, batch=8, concurrent (`hey -c 5`, n=100) | 984 ms | 1,018 ms | 1,037 ms | Confirms the "Open for Week 3" note below: the batch endpoint loops the single-item path (~120 ms × 8 ≈ 960 ms observed), it does not share one tokenisation pass. |
+| `/predict/batch`, batch=8, concurrent (`hey -c 5`, n=100) | 984 ms | 1,018 ms | 1,037 ms | **Resolved below, with a caveat** — the quantized model this table otherwise measures still loops (same numbers apply); a real shared forward pass now exists for the fp32 graph but was measured to not actually help. See "Batch endpoint: what shipped and why" below. |
 
 **A concurrency bug found and fixed while running this test, not before it.** The first
 `hey -c 10` run threw sporadic `500`s (36 of 500) - `RuntimeError: Already borrowed`
@@ -183,6 +183,43 @@ not the ONNX forward pass, which dominates latency and is safe to run concurrent
 (`onnxruntime.InferenceSession.run` is thread-safe). Re-run after the fix: 0 errors
 across 500 requests. This is exactly why the load test scope in §9 of `PROJECT_PLAN.md`
 exists as its own line item rather than being assumed from the model-only benchmark.
+
+## Batch endpoint: what shipped and why
+
+Closes the "Open for Week 3" note below with a measurement, not the fix that note
+assumed. `/predict/batch` now shares one tokenisation call across the batch either way
+(`_tokenize_batch`), and shares one ONNX forward pass too - but only on the fp32 graph.
+
+**Why not on the quantized graph, which is what's actually served (`@production` is
+INT8):** ONNX Runtime's dynamic quantization recomputes its activation scale from
+whatever tensor it's given, so a batch-of-N forward pass is not numerically equivalent to
+N batch-of-1 calls the way it is on fp32. Measured directly (bypassing HTTP, same ONNX
+session, same 200 held-out test rows): batching flipped the predicted star on **5% of
+them** versus the single-item path. That's a real accuracy risk, not a rounding
+difference, so `_looped_logits` keeps the quantized path looping - `/predict/batch`
+always agrees with `/predict` on identical text, verified by
+`tests/test_serve.py::test_predict_batch_matches_single_item_predictions`.
+
+**A second, independent finding: even where batching is numerically safe (fp32), it
+doesn't help.** Measured directly against the fp32 ONNX session, same texts, same
+process, warm: 8 looped single-item calls average 2744 ms; one real batch-of-8 call
+averages 2884 ms — batching is marginally *slower*, not faster. `INTRA_OP_THREADS=1` is
+deliberate (see `_TOKENIZER_LOCK`'s comment on concurrent-request safety), so the forward
+pass is compute-bound on one thread either way; there's no per-call Python/session
+overhead here large enough for sharing one call to recover. The original "Open for Week
+3" note assumed batching was primarily an overhead win. Measured, it isn't, for this
+model at this thread count.
+
+**Net effect:** the batch endpoint's correctness is now solid and tested (INT8 and fp32
+predictions match `/predict` exactly, always). Its latency for the model actually in
+production is **unchanged** — still ~120 ms × N, because looping is the only numerically
+safe option for that graph, and batching wasn't going to be faster even if it weren't.
+Multi-worker `uvicorn` was tried as an alternative lever for concurrency (see the load
+test table above) and didn't help on the hardware it was measured on either. The
+remaining real levers - static/calibrated INT8 quantization (removes the batch-invariance
+problem) or `intra_op_num_threads > 1` (trades single-request latency for batch
+throughput) - are both out of scope for this pass and are documented as open, not
+attempted-and-hidden.
 
 ## Feature store on the request path
 
@@ -212,14 +249,26 @@ better than someone adding a `print` later.
 
 ## Open for Week 3
 
-- Whether `/predict/batch` shares one tokenisation pass or loops the single path.
-  **Measured, not yet decided:** it currently loops (§HTTP load test above - 8-item
-  batches scale ~linearly with the single-item latency, ~960 ms observed vs ~120 ms × 8).
-  A shared tokenisation pass would cut that, but the batch endpoint is first in the cut
-  order (§10) if time runs short, so this stays open rather than becoming a required fix.
+- ~~Whether `/predict/batch` shares one tokenisation pass or loops the single path.~~
+  **Resolved, with a finding that changed the plan:** it now shares tokenisation
+  unconditionally and shares the ONNX forward pass on fp32 — but batching turned out not
+  to be a latency win at all (see "Batch endpoint: what shipped and why" above), and is
+  actively unsafe on the quantized graph actually served (5% prediction disagreement,
+  measured), so that graph still loops. The endpoint's correctness improved; its latency
+  for `@production` did not, and there's no cheap further lever within this pass's scope.
 - ~~Whether the ONNX export replaces the transformers pipeline outright or sits behind a
   `runtime.onnx` flag with the pipeline as fallback.~~ **Resolved:** ONNX replaces the
   pipeline outright; no fallback needed. The concern was quantisation degrading accuracy
   past a gate, and it measured at noise-level (see the INT8 table above) — a fallback
   code path defending against a risk that didn't materialise is exactly the kind of
   gold-plating §1's cut-order principle warns against.
+- **New, opened by this pass:** static/calibrated INT8 quantization would remove the
+  batch-invariance problem above and let the served model actually benefit from batching.
+  Not attempted here — it needs a calibration dataset, a re-export, and a fresh accuracy-
+  delta measurement against the existing "+0.0011 macro-F1, noise-level" dynamic-INT8
+  number. Left open rather than rushed.
+- **New, opened by this pass:** concurrent-load latency (p95 226 ms vs. the 130 ms target,
+  §HTTP load test above) is still open. Multi-worker `uvicorn --workers 4` was tried as
+  the obvious fix and measured *no better* (p95 238 ms) on the machine it was tested on —
+  each worker's own MPS-backed feature-store encoder warmup is a plausible contention
+  source, not confirmed. Scaling this needs real profiling, not another guess.

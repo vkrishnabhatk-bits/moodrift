@@ -3,11 +3,13 @@
 Predicts a 1–5 star rating from free-text product reviews, built as a full MLOps pipeline:
 ingest → validate → version → train/compare → serve → monitor → retrain-trigger.
 
-> **Status: Weeks 1–2 of 4 complete.** The data plane, all three model tiers, the model
-> registry and the reproduce command work end to end. Serving (FastAPI/ONNX) and monitoring
-> (drift detection, retraining triggers) are designed — [contract](docs/api_contract.md),
-> [drift design](docs/drift_design.md) — but not yet built. This README is deliberately
-> brief and gets finalised in Week 4.
+> **Status: Weeks 1–3 of 4 complete.** The data plane, all three model tiers, the model
+> registry, the reproduce command, the FastAPI serving stack (ONNX + INT8, six endpoints,
+> feature-store read-through) and the monitoring/drift stack (four detectors, four
+> simulated scenarios, a four-tier retraining trigger) all work end to end — see
+> [API contract](docs/api_contract.md) and [drift design](docs/drift_design.md) for the
+> design, and the sections below for what actually shipped and was measured. Week 4 is
+> buffer: hardening, docs, demo — no new features. This README gets its final pass then.
 
 ## Current results
 
@@ -119,14 +121,14 @@ flowchart TD
         MLF --> CMP --> REG
     end
 
-    subgraph SRV["Serving plane — week 3"]
+    subgraph SRV["Serving plane — built"]
         RT["runtime<br/>ONNX + INT8"]
         API["FastAPI<br/>/predict · /model/info · /metrics"]
         PLOG["prediction log<br/>JSONL"]
         RT --> API --> PLOG
     end
 
-    subgraph OBS["Observability plane — week 3"]
+    subgraph OBS["Observability plane — built"]
         DET["drift detectors<br/>PSI · KS · domain clf · rolling F1"]
         TRG["trigger<br/>WATCH → CANDIDATE → FIRE → PROMOTE"]
         DET --> TRG
@@ -142,15 +144,15 @@ flowchart TD
     TRG -.->|"retrain event"| T3
 
     classDef built fill:#e8f4ea,stroke:#4a7c59,color:#1b3a24
-    classDef planned fill:#f2f2f2,stroke:#999,color:#333,stroke-dasharray: 4 3
-    class RAW,ING,VAL,REJ,SAM,SPL,REF,EMB,FS,T1,T2,T3,MLF,CMP,REG built
-    class RT,API,PLOG,DET,TRG planned
+    class RAW,ING,VAL,REJ,SAM,SPL,REF,EMB,FS,T1,T2,T3,MLF,CMP,REG,RT,API,PLOG,DET,TRG built
 ```
 
-Green is built and running today; grey dashed is designed and scheduled for Week 3 — the
-[API contract](docs/api_contract.md) and [drift design](docs/drift_design.md) specify both.
-The dashed line from the trigger back to training is the retraining loop: the trigger emits
-an event and does **not** train, so the decision stays auditable on its own.
+Every plane is built and running today — the last two (serving, observability) landed in
+Week 3; the [API contract](docs/api_contract.md) and [drift design](docs/drift_design.md)
+still specify the design, and now the sections below and `docs/drift_report.md` show what
+was actually measured. The dashed line from the trigger back to training is the retraining
+loop: the trigger emits an event and does **not** train, so the decision stays auditable
+on its own.
 
 Text normalisation lives in one place (`src/features/clean.py`) and is shared by training and
 serving, and features are cached in a SQLite feature store keyed by a hash of the normalised
@@ -161,8 +163,38 @@ to 1.3 ms.
 Promotion uses MLflow **aliases**, not the deprecated stages (ADR-0004):
 `@candidate` → `@champion` → `@production`. `make register` refuses to promote a model that
 fails a gate in `conf/evaluation.yaml`, and writes the passing numbers into the version
-description. `@production` stays unset until the Week 3 smoke and load tests pass — serving
-always resolves an explicit alias, never "latest".
+description. **`@production` now points at champion v1** — it cleared the Week 3 smoke and
+load tests (`scripts/smoke_test.sh`, `docs/api_contract.md`'s HTTP load test) — and serving
+always resolves that explicit alias, never "latest".
+
+## Serving & monitoring (Week 3)
+
+`docker compose up` runs the API, MLflow and Prometheus together; `GET /model/info` reports
+exactly which registry version, git SHA and DVC data hash is live. The API resolves
+`models:/moodrift-classifier@production`, exports to ONNX, and serves the INT8 build by
+default — **313 MB → 79 MB (−75%) for an accuracy delta at noise level** (full table in
+[`docs/api_contract.md`](docs/api_contract.md)). Six endpoints, every edge case in the
+contract covered by `scripts/smoke_test.sh` and the Postman collection.
+
+Two things measurement changed here, worth stating plainly rather than editing out:
+
+- **Real batching for `/predict/batch` doesn't help the model actually served.** It shares
+  one ONNX forward pass on the fp32 graph (verified bit-exact vs. looping), but the INT8
+  graph — what `@production` runs — isn't batch-invariant under dynamic quantisation
+  (measured: 5% of predicted stars flipped when batched vs. single-item), so it still
+  loops there to stay correct. And even on fp32, a real batch call measured *no faster*
+  than looping, single-threaded ONNX being compute- not overhead-bound. Full writeup in
+  `docs/api_contract.md`.
+- **Concurrent-load latency still exceeds the 130 ms target** (p95 226 ms at `hey -c 10`,
+  vs. 122 ms sequential). Multi-worker `uvicorn` was tried and measured no better on this
+  hardware. Left open rather than shipping an unverified fix.
+
+Monitoring: PSI + KS input drift, a deliberately weak domain classifier for concept drift,
+rolling macro-F1/MAE for performance drift, four ramped simulation scenarios, and a
+four-tier `WATCH → CANDIDATE → FIRE → PROMOTE` trigger — design and thresholds justified in
+[ADR-0006](docs/decisions/ADR-0006-drift-detection-approach.md) and
+[ADR-0007](docs/decisions/ADR-0007-retraining-trigger-design.md), results in
+[`docs/drift_report.md`](docs/drift_report.md).
 
 ## Data
 
@@ -192,6 +224,11 @@ single SQLite file, and the cross-split text deduplication that removed ~13% tes
   coexist on macOS/arm64: torch-first segfaults, LightGBM-first deadlocks, both silently.
   `OMP_NUM_THREADS=1` plus importing LightGBM first is the working combination, which
   `make bench` sets. The champion (tier 3) does not hit this.
+- `/predict/batch` doesn't speed up the served (INT8) model over looping `/predict` N
+  times — batching is numerically unsafe on that graph (measured) and doesn't help
+  latency even where it is safe (fp32, also measured). See `docs/api_contract.md`.
+- Concurrent request latency exceeds the 130 ms p95 target (measured 226 ms at 10
+  concurrent requests); single sequential requests meet it comfortably (122 ms).
 
 ## Roadmap
 
@@ -199,5 +236,5 @@ single SQLite file, and the cross-split text deduplication that removed ~13% tes
 |---|---|---|
 | 1 | Data plane, versioning, all three model tiers | ✅ complete (`week1-data`) |
 | 2 | Comparison report, model registry, `make reproduce`, serving + drift design | ✅ complete (`week2-experiments`) |
-| 3 | FastAPI serving + drift monitoring and retraining triggers | next |
-| 4 | Documentation, hardening, demo | planned |
+| 3 | FastAPI serving + drift monitoring and retraining triggers | ✅ complete (`week3-deploy-monitor`) |
+| 4 | Documentation, hardening, demo | next |
