@@ -115,10 +115,21 @@ def restore_data(run_sha: str) -> None:
     Only ``dvc.lock`` is touched, and only from the run's own commit. The DVC cache is
     local, so this succeeds when the version was built on this machine and fails clearly
     when it was not - rather than pretending to have restored something.
+
+    ``--force`` is required: plain ``dvc checkout`` refuses whenever a DVC-tracked
+    output has *any* local drift (a corrupted split, or the feature store's legitimate
+    online-write accretions from serving) - which is exactly the situation this function
+    exists to fix. Found by executing this path for the first time (it had never run
+    before this): without --force it raised ``CalledProcessError`` and restored nothing,
+    so the whole function silently didn't work despite reading and type-checking fine.
     """
     print(f"[reproduce] restoring data version from {run_sha[:8]}")
+    print(
+        "[reproduce] WARNING: overwriting local drift in DVC-tracked outputs "
+        "(e.g. feature_store/features.db's online-write rows) with the run's version"
+    )
     subprocess.run(["git", "checkout", run_sha, "--", "dvc.lock"], cwd=REPO_ROOT, check=True)
-    subprocess.run([sys.executable, "-m", "dvc", "checkout"], cwd=REPO_ROOT, check=True)
+    subprocess.run([sys.executable, "-m", "dvc", "checkout", "--force"], cwd=REPO_ROOT, check=True)
 
 
 def reproduce(run_id: str, restore: bool = False, tolerance: float | None = None) -> dict[str, Any]:
