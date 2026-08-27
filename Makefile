@@ -20,8 +20,18 @@ help:  ## Show available targets
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 setup:  ## Create the virtualenv and install dependencies
+	# Installs from requirements.lock.txt (the frozen set `make freeze` produces and
+	# docker/Dockerfile.serve also builds from), not `pyproject.toml`'s loose `>=` bounds
+	# resolved fresh - a real bug, not a hypothetical: a fresh `make setup` once resolved
+	# pyarrow 25.0.1 where every trained model was built against 25.0.0, and that alone
+	# was enough to make `make data` produce different (though internally consistent)
+	# splits from a clean clone - the "byte-identical from a clean clone" claim was false
+	# until this was pinned. `--no-deps` on the second line registers this package in
+	# editable mode without letting pip re-resolve (and drift) the dependencies just
+	# pinned by the first line.
 	uv venv --python 3.11 .venv
-	$(PIP) -e ".[dev]"
+	$(PIP) -r requirements.lock.txt
+	$(PIP) -e . --no-deps
 
 # ------------------------------------------------------------------- data plane
 
