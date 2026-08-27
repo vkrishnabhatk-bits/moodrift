@@ -13,6 +13,7 @@ export PATH := $(CURDIR)/.venv/bin:$(PATH)
 .DEFAULT_GOAL := help
 .PHONY: help setup data ingest validate sample features train tier1 tier2 tier3 compare \
         bench register reproduce export-onnx image serve test lint format mlflow-ui \
+        mlflow-export \
         freeze clean-artifacts
 
 help:  ## Show available targets
@@ -68,6 +69,9 @@ bench:  ## Measure per-tier serving latency and artifact size, logged back to ML
 
 compare:  ## Regenerate docs/model_comparison.md from logged MLflow runs
 	$(PY) -m src.evaluate.compare
+
+mlflow-export:  ## Export tracking-store runs + registry state into docs/mlflow_exports/
+	$(PY) -m src.evaluate.mlflow_export
 
 register:  ## Register the champion in the model registry, behind the promotion gates
 	$(PY) -m src.train.promote
