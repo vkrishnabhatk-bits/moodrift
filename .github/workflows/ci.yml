@@ -18,9 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No uv.lock in this repo - make setup resolves deps from pyproject.toml directly
+      # (requirements.lock.txt is a separate, manually frozen file the Docker build uses,
+      # not something `uv` itself locks against). Caching needs an explicit glob here or
+      # the action fails outright looking for a uv.lock that will never exist.
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Set up virtualenv
         run: make setup
