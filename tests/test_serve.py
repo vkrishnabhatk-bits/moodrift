@@ -41,6 +41,9 @@ def test_model_info_endpoint():
         assert data["data_hash"]
         assert data["feature_store"]["rows"] > 0
         assert set(data["runtime"].keys()) >= {"onnx", "quantised", "threads", "device"}
+        # threads is an int (INTRA_OP_THREADS); the schema's runtime dict must accept
+        # int alongside str/bool or pydantic silently coerces 1 -> True on the wire.
+        assert data["runtime"]["threads"] == 1
         assert data["served_since"]
 
 

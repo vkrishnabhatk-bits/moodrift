@@ -180,7 +180,7 @@ class ModelInfoResponse(BaseModel):
     data_hash: str = Field(description="DVC hash of the splits the model was trained on.")
     image_tag: str | None = Field(default=None, description="moodrift-serve:<git-sha>.")
     feature_store: FeatureStoreInfo
-    runtime: dict[str, str | bool] = Field(
+    runtime: dict[str, str | bool | int] = Field(
         description="Execution details: onnx, quantised, threads, device."
     )
     served_since: str = Field(description="ISO timestamp of model load, not process start.")
