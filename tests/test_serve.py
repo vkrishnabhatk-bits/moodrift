@@ -120,6 +120,35 @@ def test_predict_batch_endpoint_success():
             assert 1 <= prediction["stars"] <= 5
 
 
+def test_predict_batch_matches_single_item_predictions():
+    """``/predict/batch`` must always agree with ``/predict`` on identical text - true
+    for both graphs, but for different reasons: fp32 shares one padded tensor across
+    items (app.py's ``_batched_logits``) and is bit-exact regardless; the INT8 graph
+    loops single-row ONNX calls (``_looped_logits``) specifically *because* a real batched
+    forward pass measurably disagrees with it (5% star flips, measured on 200 held-out
+    rows - see the module docstring on ``_looped_logits``). This test is what would catch
+    a regression that started batching the quantized graph again.
+    """
+    texts = [
+        "Loved it, five stars, would buy again.",
+        "Terrible, broke on day one, total waste of money.",
+        "It's fine. Does what it says on the tin.",
+    ]
+    with TestClient(app) as client:
+        batch_response = client.post("/predict/batch", json={"texts": texts})
+        assert batch_response.status_code == 200
+        batch_predictions = batch_response.json()["predictions"]
+
+        for text, batched in zip(texts, batch_predictions, strict=True):
+            single_response = client.post("/predict", json={"text": text})
+            assert single_response.status_code == 200
+            single = single_response.json()["prediction"]
+            assert batched["stars"] == single["stars"]
+            assert batched["confidence"] == single["confidence"]
+            assert batched["probabilities"] == single["probabilities"]
+            assert batched["text_hash"] == single["text_hash"]
+
+
 def test_predict_batch_endpoint_rejects_oversize_batch():
     """More than limits.max_batch items is a 413, not a 422."""
     with TestClient(app) as client:

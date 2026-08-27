@@ -23,6 +23,7 @@ from src.provenance import text_key
 from src.serve.schemas import (
     BatchPredictRequest,
     BatchPredictResponse,
+    FeatureSource,
     FeatureStoreInfo,
     Flags,
     HealthResponse,
@@ -161,7 +162,7 @@ def _model_ref() -> ModelRef:
     )
 
 
-def _feature_source(key: str, normalised: str) -> str:
+def _feature_source(key: str, normalised: str) -> FeatureSource:
     """Feature-store read-through: hit reuses the cached embedding, miss computes and
     writes back with source='online' - so a repeated identical request hits next time.
 
@@ -169,6 +170,7 @@ def _feature_source(key: str, normalised: str) -> str:
     comment above); this exists to keep the store growing and accurate for monitoring,
     and to report `feature_source` honestly instead of the placeholder "live" task 2 left.
     """
+    assert feature_store is not None  # only called after load_model_and_tokenizer()
     if feature_store.get(key) is not None:
         return "store"
     vectors = embed.encode([normalised], tier2_cfg)
@@ -225,6 +227,7 @@ def _tokenize(normalised: str) -> tuple[dict, bool]:
     the model's window - the ``truncated`` flag reports what the tokeniser did, not a
     character-count guess.
     """
+    assert tokenizer is not None  # only called after load_model_and_tokenizer()
     with _TOKENIZER_LOCK:
         full_ids = tokenizer.encode(normalised, add_special_tokens=True)
         tokens = tokenizer(
@@ -250,6 +253,7 @@ def _predict_one(text: str, request_id: str, model_ref: ModelRef) -> Prediction:
     it also writes the prediction log line - one row per prediction, not one per HTTP
     request, so a batch call logs once per item while sharing the batch's request_id.
     """
+    assert ort_session is not None  # only called after load_model_and_tokenizer()
     started = time.perf_counter()
     normalised = normalise(text)
     key = text_key(normalised)
@@ -293,6 +297,123 @@ def _predict_one(text: str, request_id: str, model_ref: ModelRef) -> Prediction:
         feature_source=feature_source,
         text_hash=key,
     )
+
+
+def _tokenize_batch(normalised_list: list[str]) -> tuple[dict, list[bool]]:
+    """Batched counterpart to ``_tokenize``: one call for the whole list, so
+    ``/predict/batch`` builds one padded tensor instead of looping ``_tokenize`` N times.
+    Padding is already fixed at ``MAX_TOKENS`` per item, so batching changes nothing about
+    per-item truncation - each row's real length is still checked against its own
+    untruncated encoding.
+    """
+    assert tokenizer is not None  # only called after load_model_and_tokenizer()
+    with _TOKENIZER_LOCK:
+        full_ids = [tokenizer.encode(t, add_special_tokens=True) for t in normalised_list]
+        tokens = tokenizer(
+            normalised_list,
+            padding="max_length",
+            max_length=MAX_TOKENS,
+            truncation=True,
+            return_tensors="np",
+        )
+    truncated = [len(ids) > MAX_TOKENS for ids in full_ids]
+    return tokens, truncated
+
+
+def _batched_logits(tokens: dict) -> np.ndarray:
+    """One ONNX call across the whole batch. Verified bit-exact against N single-item
+    calls for the fp32 graph - safe to use whenever ``quantised`` is False.
+    """
+    assert ort_session is not None  # only called after load_model_and_tokenizer()
+    onnx_inputs = {
+        "input_ids": tokens["input_ids"].astype(np.int64),
+        "attention_mask": tokens["attention_mask"].astype(np.int64),
+    }
+    return ort_session.run(None, onnx_inputs)[0]
+
+
+def _looped_logits(tokens: dict) -> np.ndarray:
+    """N single-row ONNX calls, stacked. Used for the INT8 graph only.
+
+    ONNX Runtime's dynamic quantization recomputes its activation scale from whatever
+    tensor it's actually given, so a batch-of-N forward pass is *not* numerically
+    equivalent to N batch-of-1 calls on the quantized model the way it is on fp32 -
+    measured on 200 held-out test rows: batching flipped the predicted star on 5% of
+    them versus the single-item path. Looping here keeps ``/predict/batch`` agreeing with
+    ``/predict`` on identical text, at the cost of the batching speed-up this model
+    doesn't get to keep. See docs/api_contract.md's "Open for Week 3" note and
+    PROJECT_PLAN.md's Week 3 retro for the measurement. A static/calibrated quantization
+    would remove this constraint but was out of scope for this pass.
+    """
+    assert ort_session is not None  # only called after load_model_and_tokenizer()
+    rows = []
+    for i in range(tokens["input_ids"].shape[0]):
+        single = {
+            "input_ids": tokens["input_ids"][i : i + 1].astype(np.int64),
+            "attention_mask": tokens["attention_mask"][i : i + 1].astype(np.int64),
+        }
+        rows.append(ort_session.run(None, single)[0][0])
+    return np.stack(rows)
+
+
+def _predict_many(texts: list[str], request_id: str, model_ref: ModelRef) -> list[Prediction]:
+    """Batched counterpart to ``_predict_one``: one tokenisation call always, and one
+    ONNX forward pass for the whole batch when that's numerically safe (fp32) - closes
+    most of the "Open for Week 3" gap in docs/api_contract.md, where ``/predict/batch``
+    measured ~120 ms x N because it looped the single-item path unconditionally. The
+    quantized model still loops its forward pass; see ``_looped_logits``. Per-item work
+    that was already cheap (normalisation, feature-store lookup, flag detection, logging)
+    stays per-item either way.
+    """
+    started = time.perf_counter()
+    normalised_list = [normalise(t) for t in texts]
+    keys = [text_key(n) for n in normalised_list]
+    feature_sources = [_feature_source(k, n) for k, n in zip(keys, normalised_list, strict=True)]
+
+    tokens, truncated = _tokenize_batch(normalised_list)
+    logits = _looped_logits(tokens) if quantised else _batched_logits(tokens)
+    probs = softmax(logits)
+    # Tokenisation + the forward pass are genuinely shared across the batch; amortise
+    # that cost evenly across items for the prediction log's latency_ms field rather than
+    # recording 0 for work that did happen.
+    shared_ms = (time.perf_counter() - started) * 1000.0 / len(texts)
+
+    predictions = []
+    for i, normalised in enumerate(normalised_list):
+        row = probs[i]
+        stars = int(np.argmax(row) + 1)
+        confidence = round(float(row[stars - 1]), 4)
+        probabilities = {j + 1: round(float(p), 4) for j, p in enumerate(row)}
+        flags = _detect_flags(normalised, truncated[i])
+        token_count = int(tokens["attention_mask"][i].sum())
+        PREDICTIONS_TOTAL.labels(feature_source=feature_sources[i]).inc()
+
+        log_prediction(
+            request_id=request_id,
+            text=normalised,
+            text_hash=keys[i],
+            token_count=token_count,
+            stars=stars,
+            confidence=confidence,
+            probabilities=probabilities,
+            flags=flags.model_dump(),
+            feature_source=feature_sources[i],
+            model_version=model_ref.version,
+            run_id=model_ref.run_id,
+            git_sha=model_ref.git_sha,
+            latency_ms=round(shared_ms, 2),
+        )
+        predictions.append(
+            Prediction(
+                stars=stars,
+                confidence=confidence,
+                probabilities=probabilities,
+                flags=flags,
+                feature_source=feature_sources[i],
+                text_hash=keys[i],
+            )
+        )
+    return predictions
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -404,7 +525,7 @@ def predict_batch(payload: BatchPredictRequest):
     model_ref = _model_ref()
 
     start_time = time.perf_counter()
-    predictions = [_predict_one(text, request_id, model_ref) for text in payload.texts]
+    predictions = _predict_many(payload.texts, request_id, model_ref)
     latency = (time.perf_counter() - start_time) * 1000.0
     REQUEST_LATENCY_MS.labels(route="/predict/batch").observe(latency)
 
