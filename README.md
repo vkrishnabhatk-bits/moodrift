@@ -36,7 +36,9 @@ twice:
   moves. Accuracy would have hidden this — tiers 1 and 2 score within 0.2 points of each
   other on it.
 
-Full breakdown in [`docs/model_comparison.md`](docs/model_comparison.md).
+Full breakdown in [`docs/model_comparison.md`](docs/model_comparison.md); raw run
+history and registry state exported from MLflow:
+[`docs/mlflow_exports/`](docs/mlflow_exports/summary.md).
 
 ## Quickstart
 
@@ -87,7 +89,9 @@ so a discrete GPU is not required.
 ## Architecture
 
 Four planes, each runnable on its own. The serving plane never imports from the training
-plane — the boundary between them is one model artifact plus one config file.
+plane — the boundary between them is one model artifact plus one config file. Data flow,
+the request-time sequence, and the registry promotion mechanics:
+[`docs/architecture.md`](docs/architecture.md).
 
 ```mermaid
 flowchart TD
@@ -229,6 +233,15 @@ single SQLite file, and the cross-split text deduplication that removed ~13% tes
   latency even where it is safe (fp32, also measured). See `docs/api_contract.md`.
 - Concurrent request latency exceeds the 130 ms p95 target (measured 226 ms at 10
   concurrent requests); single sequential requests meet it comfortably (122 ms).
+
+## Citations
+
+- McAuley, J., & Leskovec, J. (2013). *From Amateurs to Connoisseurs: Modeling the
+  Evolution of User Expertise through Online Reviews.* WWW '13 — source of the
+  [Amazon Fine Food Reviews](https://snap.stanford.edu/data/web-FineFoods.html) dataset.
+- Crowe, R., et al. *Machine Learning Production Systems.* O'Reilly, 2024.
+- Burkov, A. *Machine Learning Engineering.* 2020.
+- McMahon, A. P. *Machine Learning Engineering with Python* (2nd ed.). Packt, 2023.
 
 ## Roadmap
 
