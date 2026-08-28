@@ -3,13 +3,9 @@
 Predicts a 1–5 star rating from free-text product reviews, built as a full MLOps pipeline:
 ingest → validate → version → train/compare → serve → monitor → retrain-trigger.
 
-> **Status: Weeks 1–3 of 4 complete.** The data plane, all three model tiers, the model
-> registry, the reproduce command, the FastAPI serving stack (ONNX + INT8, six endpoints,
-> feature-store read-through) and the monitoring/drift stack (four detectors, four
-> simulated scenarios, a four-tier retraining trigger) all work end to end — see
-> [API contract](docs/api_contract.md) and [drift design](docs/drift_design.md) for the
-> design, and the sections below for what actually shipped and was measured. Week 4 is
-> buffer: hardening, docs, demo — no new features. This README gets its final pass then.
+Data pipeline, three tracked model tiers, a versioned registry, FastAPI serving (ONNX +
+INT8), and drift monitoring with a four-tier retraining trigger all run end to end — see
+below for what shipped and what was measured.
 
 ## Current results
 
@@ -95,7 +91,7 @@ the request-time sequence, and the registry promotion mechanics:
 
 ```mermaid
 flowchart TD
-    subgraph DATA["Data plane — built"]
+    subgraph DATA["Data plane"]
         RAW["raw archive<br/>finefoods.txt.gz<br/>content-hashed"]
         ING["ingest<br/>parse to parquet"]
         VAL["validate<br/>Pandera schema"]
@@ -112,7 +108,7 @@ flowchart TD
         SPL --> EMB --> FS
     end
 
-    subgraph EXP["Experiment plane — built"]
+    subgraph EXP["Experiment plane"]
         T1["tier 1<br/>TF-IDF + LogReg"]
         T2["tier 2<br/>MiniLM + LightGBM"]
         T3["tier 3<br/>DistilRoBERTa<br/>champion"]
@@ -125,14 +121,14 @@ flowchart TD
         MLF --> CMP --> REG
     end
 
-    subgraph SRV["Serving plane — built"]
+    subgraph SRV["Serving plane"]
         RT["runtime<br/>ONNX + INT8"]
         API["FastAPI<br/>/predict · /model/info · /metrics"]
         PLOG["prediction log<br/>JSONL"]
         RT --> API --> PLOG
     end
 
-    subgraph OBS["Observability plane — built"]
+    subgraph OBS["Observability plane"]
         DET["drift detectors<br/>PSI · KS · domain clf · rolling F1"]
         TRG["trigger<br/>WATCH → CANDIDATE → FIRE → PROMOTE"]
         DET --> TRG
@@ -151,12 +147,11 @@ flowchart TD
     class RAW,ING,VAL,REJ,SAM,SPL,REF,EMB,FS,T1,T2,T3,MLF,CMP,REG,RT,API,PLOG,DET,TRG built
 ```
 
-Every plane is built and running today — the last two (serving, observability) landed in
-Week 3; the [API contract](docs/api_contract.md) and [drift design](docs/drift_design.md)
-still specify the design, and now the sections below and `docs/drift_report.md` show what
-was actually measured. The dashed line from the trigger back to training is the retraining
-loop: the trigger emits an event and does **not** train, so the decision stays auditable
-on its own.
+Design detail for the serving and observability planes: [API contract](docs/api_contract.md)
+and [drift design](docs/drift_design.md); measured results: the sections below and
+`docs/drift_report.md`. The dashed line from the trigger back to training is the
+retraining loop: the trigger emits an event and does **not** train, so the decision stays
+auditable on its own.
 
 Text normalisation lives in one place (`src/features/clean.py`) and is shared by training and
 serving, and features are cached in a SQLite feature store keyed by a hash of the normalised
