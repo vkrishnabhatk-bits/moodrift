@@ -24,7 +24,7 @@ rule for it), so treat it as a rule to check, not one to assume: if a serving ch
 needs a training-plane import, that is a design smell to stop and reconsider, not paper
 over.
 
-## Batch write path (data plane, Week 1)
+## Batch write path (data plane)
 
 For every validated, deduplicated, English-language row: compute the tier-2 sentence
 embedding, hash the normalised text (`src.provenance.text_key`), and write
@@ -34,7 +34,7 @@ embedding, hash the normalised text (`src.provenance.text_key`), and write
 and `by_source.batch` count in `GET /model/info` meaningful — they say how much of the
 store came from the batch write versus from live serving traffic.
 
-## Online read path (serving plane, Week 3)
+## Online read path (serving plane)
 
 ```mermaid
 sequenceDiagram

@@ -162,11 +162,11 @@ to 1.3 ms.
 Promotion uses MLflow **aliases**, not the deprecated stages (ADR-0004):
 `@candidate` → `@champion` → `@production`. `make register` refuses to promote a model that
 fails a gate in `conf/evaluation.yaml`, and writes the passing numbers into the version
-description. **`@production` now points at champion v1** — it cleared the Week 3 smoke and
-load tests (`scripts/smoke_test.sh`, `docs/api_contract.md`'s HTTP load test) — and serving
+description. **`@production` now points at champion v1** — it cleared the smoke and load
+tests (`scripts/smoke_test.sh`, `docs/api_contract.md`'s HTTP load test) — and serving
 always resolves that explicit alias, never "latest".
 
-## Serving & monitoring (Week 3)
+## Serving & monitoring
 
 `docker compose up` runs the API, MLflow and Prometheus together; `GET /model/info` reports
 exactly which registry version, git SHA and DVC data hash is live. The API resolves

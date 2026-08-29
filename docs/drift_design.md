@@ -65,10 +65,10 @@ own features is a second feature definition waiting to disagree with the first â
 the skew the store exists to prevent.
 
 **AUC 0.65 for alert, 0.60 for warn.** 0.5 is chance; 0.65 is a margin large enough that a
-weak, cross-validated model found real structure. To be calibrated in Week 3 by running the
-detector on two random halves of the reference window: whatever AUC that produces is the
-floor, and the alert threshold must sit clearly above it. If the null case comes in above
-0.60, this number changes and the reason gets recorded.
+weak, cross-validated model found real structure. Calibrated by running the detector on two
+random halves of the reference window: the null-case AUC came in at 0.490, essentially
+chance and 15 points below the 0.65 floor, so the floor holds without adjustment. Full
+result: [ADR-0006](decisions/ADR-0006-drift-detection-approach.md), "Question 1, resolved."
 
 ## Performance drift: rolling macro-F1 and macro-MAE
 

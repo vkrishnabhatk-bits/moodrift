@@ -1,13 +1,15 @@
 # Serving API contract
 
-**Status:** designed in Week 2, implemented in Week 3. Nothing here is live yet.
-The schemas exist as code in `src/serve/schemas.py`; this document is the prose version
-and the Week 3 test checklist. Where the two disagree, the code is right.
+**Status:** implemented and live. Designed before the implementation existed - the
+schemas exist as code in `src/serve/schemas.py`; this document is the prose version and
+the test checklist below is what `scripts/smoke_test.sh` and the Postman collection
+actually run against a live process. Where the two disagree, the code is right.
 
-The point of writing this before the implementation is that the expensive parts of an API
-are the decisions, not the typing: what an empty string returns, whether oversize is 413 or
-422, whether `/health` touches the model. Deciding those under time pressure in Week 3,
-with the monitoring work running in parallel, is how contracts end up inconsistent.
+The point of writing the contract before the implementation is that the expensive parts
+of an API are the decisions, not the typing: what an empty string returns, whether
+oversize is 413 or 422, whether `/health` touches the model. Deciding those under time
+pressure while the monitoring build runs in parallel is how contracts end up inconsistent
+- this one was settled first.
 
 ## Boundary rules
 
@@ -15,9 +17,10 @@ with the monitoring work running in parallel, is how contracts end up inconsiste
   model artifact plus `conf/serve.yaml`.
 - `src/serve/` never imports from `src/train/` or `src/ingest/`.
 - The model is resolved from an **explicit alias** — `models:/moodrift-classifier@production`
-  — never `latest`. Until Week 3's smoke and load tests move `@production`, that URI does
-  not resolve and `/ready` returns 503. That is the intended behaviour: an unproven model
-  should not become servable just by being the most recent thing trained.
+  — never `latest`. `@production` now points at the champion (moved there after it cleared
+  the smoke and load tests below); if it were ever unset, that URI would not resolve and
+  `/ready` would return 503 - an unproven model does not become servable just by being the
+  most recent thing trained.
 - Every response carries the model version, run ID and git SHA that produced it.
 
 ## Endpoints
@@ -92,7 +95,7 @@ it is too big, which is what 413 means. Pydantic can only produce 422, so the ca
 
 ## Edge cases
 
-This table is the Week 3 test suite. Every row becomes a test and a Postman request.
+This table is the test suite. Every row becomes a test and a Postman request.
 
 | Input | Behaviour | Rationale |
 |---|---|---|
@@ -123,9 +126,9 @@ arm64 Darwin). Full numbers in [model_comparison.md](model_comparison.md).
 | Remaining budget for HTTP, validation, normalisation, feature-store lookup, logging | ~86 ms |
 | **Target** | **< 130 ms** |
 
-Two consequences worth stating now, because they change Week 3's priorities:
+Two consequences worth stating plainly:
 
-1. **ONNX + INT8 quantisation is no longer load-bearing for latency.** The Week 1 plan
+1. **ONNX + INT8 quantisation is no longer load-bearing for latency.** The original plan
    assumed it would be, on the reasonable guess that a 320 MB transformer would be slow on
    CPU. Measured, it is not: the champion has ~3x headroom against the target even
    single-threaded. Quantisation stays in scope for **artifact size** (320 MB vs tier 1's
@@ -137,7 +140,7 @@ Two consequences worth stating now, because they change Week 3's priorities:
    champion the store is read for monitoring features rather than to skip work. Say that
    plainly in the report instead of implying a speed-up the champion does not get.
 
-**Measured (Week 3): the INT8 accuracy delta, on 1,000 real held-out test-split rows**
+**Measured: the INT8 accuracy delta, on 1,000 real held-out test-split rows**
 (`python -m src.serve.export_onnx --quantize`, dynamic quantisation via
 `onnxruntime.quantization.quantize_dynamic`, `src.evaluate.metrics.compute_metrics` — the
 same function every tier's own evaluation uses). fp32 macro-F1 on this sample (0.6028) is
@@ -159,7 +162,7 @@ speed-up. **Serving now defaults to the INT8 build** (`app.py` prefers
 (`onnx_fp32_macro_f1`, `onnx_int8_macro_f1`, etc.), not a side file, so they can't drift
 out of sync with which run was actually measured.
 
-## HTTP load test (Week 3)
+## HTTP load test
 
 `scripts/smoke_test.sh` (curl) and `postman/moodrift.postman_collection.json` cover the
 happy path plus every row of the edge-case table above, run against a live
@@ -234,7 +237,7 @@ so a grader can watch `by_source.online` increment as they send requests.
 
 ## Prediction log
 
-JSONL via structlog, written on the request path from Week 3 — not deferred to the
+JSONL via structlog, written on the request path — not deferred to the
 monitoring work, so the drift detectors have real accumulated data the day they are built.
 
 One line per prediction: `timestamp`, `request_id`, `text_hash`, `token_count`,
