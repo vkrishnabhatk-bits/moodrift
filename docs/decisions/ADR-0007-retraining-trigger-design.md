@@ -102,6 +102,26 @@ the correct unit.
   that actually consumes a `FIRE` event and produces a challenger for `evaluate_promotion`
   to score. The trigger emits the event; executing on it is explicitly out of scope
   (`docs/drift_design.md`, "why the trigger does not train").
+- **Scheduling and real alerting are also out of scope, on purpose, not by oversight.**
+  `evaluate_window`'s "Log + alert only" and "Queue + open an issue" (table above) name
+  what a real deployment's `WATCH`/`CANDIDATE` tiers would *do*; this project only
+  implements the *decision* those actions would be based on - `alert` here is a boolean
+  field in a returned dict, not a notification. Nothing in this repo schedules
+  `trigger.evaluate_window` against the live prediction log on an interval either; the
+  only entry point is `make simulate-drift`, run by hand. A real deployment would add:
+  a scheduler (cron, or an APScheduler/Airflow job) polling `data/predictions/` on a
+  window boundary; Prometheus Alertmanager wired to fire on the `moodrift_predictions_total`
+  / drift-metric series this project already exposes via `/metrics`, rather than a second
+  bespoke notification path; and a `CANDIDATE`-tier hook that opens a tracked issue
+  (GitHub API, Jira, or similar) instead of just setting a flag. None of this is built
+  because the course brief's evaluation rubric asks for "a sound retraining trigger
+  design" and its submission checklist for "a documented retraining trigger design" - a
+  decision layer that is correct, tested, and demonstrably fires, not operational
+  alerting infrastructure. Building it anyway would mean managing external credentials (a
+  webhook URL, an SMTP account) and a long-running process for a criterion already
+  satisfied without either - the same judgment `PROJECT_PLAN.md` §10's cut order and
+  ADR-0003 (the feature store) already apply elsewhere in this project against exactly
+  this kind of scope creep.
 - `trigger.TriggerState` is per-stream (one instance per monitored scenario or, in
   production, per model). Nothing in this module aggregates across streams - that would
   be a product decision (e.g. "fire if any of N slices degrades"), not a monitoring one.
